@@ -43,7 +43,7 @@ func InitTokenEncoders() {
 			} else {
 				tokenEncoderMap[model] = defaultTokenEncoder
 			}
-		} else if strings.HasPrefix(model, "o1") {
+		} else if strings.HasPrefix(model, "o") {
 			tokenEncoderMap[model] = o200kTokenEncoder
 		} else {
 			tokenEncoderMap[model] = defaultTokenEncoder
@@ -398,6 +398,8 @@ func CountTokenMessages(info *relaycommon.RelayInfo, messages []dto.Message, mod
 				} else if m.Type == dto.ContentTypeInputAudio {
 					// TODO: 音频token数量计算
 					tokenNum += 100
+				} else if m.Type == dto.ContentTypeFile {
+					tokenNum += 5000
 				} else {
 					tokenNum += getTokenNum(tokenEncoder, m.Text)
 				}

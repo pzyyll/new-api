@@ -186,12 +186,14 @@ func buildTestRequest(model string) *dto.GeneralOpenAIRequest {
 		return testRequest
 	}
 	// 并非Embedding 模型
-	if strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3") {
+	if strings.HasPrefix(model, "o") {
 		testRequest.MaxCompletionTokens = 10
 	} else if strings.Contains(model, "thinking") {
 		if !strings.Contains(model, "claude") {
 			testRequest.MaxTokens = 50
 		}
+	} else if strings.Contains(model, "gemini") {
+		testRequest.MaxTokens = 300
 	} else {
 		testRequest.MaxTokens = 10
 	}

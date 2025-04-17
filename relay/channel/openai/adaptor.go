@@ -36,7 +36,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if !strings.Contains(request.Model, "claude") {
 		return nil, fmt.Errorf("you are using openai channel type with path /v1/messages, only claude model supported convert, but got %s", request.Model)
 	}
-	aiRequest, err := service.ClaudeToOpenAIRequest(*request)
+	aiRequest, err := service.ClaudeToOpenAIRequest(*request, info)
 	if err != nil {
 		return nil, err
 	}
@@ -147,14 +147,12 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if info.ChannelType != common.ChannelTypeOpenAI && info.ChannelType != common.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}
-	if strings.HasPrefix(request.Model, "o1") || strings.HasPrefix(request.Model, "o3") {
+	if strings.HasPrefix(request.Model, "o") {
 		if request.MaxCompletionTokens == 0 && request.MaxTokens != 0 {
 			request.MaxCompletionTokens = request.MaxTokens
 			request.MaxTokens = 0
 		}
-		if strings.HasPrefix(request.Model, "o3") || strings.HasPrefix(request.Model, "o1") {
-			request.Temperature = nil
-		}
+		request.Temperature = nil
 		if strings.HasSuffix(request.Model, "-high") {
 			request.ReasoningEffort = "high"
 			request.Model = strings.TrimSuffix(request.Model, "-high")
@@ -167,11 +165,13 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		}
 		info.ReasoningEffort = request.ReasoningEffort
 		info.UpstreamModelName = request.Model
-	}
-	if request.Model == "o1" || request.Model == "o1-2024-12-17" || strings.HasPrefix(request.Model, "o3") {
-		//修改第一个Message的内容，将system改为developer
-		if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
-			request.Messages[0].Role = "developer"
+
+		// o系列模型developer适配（o1-mini除外）
+		if !strings.HasPrefix(request.Model, "o1-mini") {
+			//修改第一个Message的内容，将system改为developer
+			if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
+				request.Messages[0].Role = "developer"
+			}
 		}
 	}
 
