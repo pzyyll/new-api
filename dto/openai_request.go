@@ -28,7 +28,7 @@ type GeneralOpenAIRequest struct {
 	MaxTokens           uint           `json:"max_tokens,omitempty"`
 	MaxCompletionTokens uint           `json:"max_completion_tokens,omitempty"`
 	ReasoningEffort     string         `json:"reasoning_effort,omitempty"`
-	//Reasoning           json.RawMessage   `json:"reasoning,omitempty"`
+	// Reasoning           json.RawMessage   `json:"reasoning,omitempty"`
 	Temperature      *float64          `json:"temperature,omitempty"`
 	TopP             float64           `json:"top_p,omitempty"`
 	TopK             int               `json:"top_k,omitempty"`
@@ -52,6 +52,7 @@ type GeneralOpenAIRequest struct {
 	Modalities       any               `json:"modalities,omitempty"`
 	Audio            any               `json:"audio,omitempty"`
 	EnableThinking   any               `json:"enable_thinking,omitempty"` // ali
+	ThinkingBudget   any               `json:"thinking_budget,omitempty"` // ali
 	ExtraBody        any               `json:"extra_body,omitempty"`
 }
 
@@ -148,7 +149,7 @@ func (m *MessageImageUrl) IsRemoteImage() bool {
 }
 
 type MessageInputAudio struct {
-	Data   string `json:"data"` //base64
+	Data   string `json:"data"` // base64
 	Format string `json:"format"`
 }
 
