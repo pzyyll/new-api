@@ -25,8 +25,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"net/textproto"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
@@ -89,7 +90,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		requestURL = fmt.Sprintf("%s?api-version=%s", requestURL, apiVersion)
 		task := strings.TrimPrefix(requestURL, "/v1/")
 		model_ := info.UpstreamModelName
-		model_ = strings.Replace(model_, ".", "", -1)
+		// model_ = strings.Replace(model_, ".", "", -1)
 		// https://github.com/songquanpeng/one-api/issues/67
 		requestURL = fmt.Sprintf("/openai/deployments/%s/%s", model_, task)
 		if info.RelayMode == constant.RelayModeRealtime {
