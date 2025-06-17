@@ -41,6 +41,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Checkbox,
   Card,
   Form
 } from '@douyinfe/semi-ui';
@@ -51,7 +52,6 @@ import {
 import EditChannel from '../../pages/Channel/EditChannel.js';
 import {
   IconTreeTriangleDown,
-  IconFilter,
   IconPlus,
   IconRefresh,
   IconSetting,
@@ -172,17 +172,108 @@ const ChannelsTable = () => {
     }
   };
 
-  // Define all columns
-  const columns = [
+  // Define column keys for selection
+  const COLUMN_KEYS = {
+    ID: 'id',
+    NAME: 'name',
+    GROUP: 'group',
+    TYPE: 'type',
+    STATUS: 'status',
+    RESPONSE_TIME: 'response_time',
+    BALANCE: 'balance',
+    PRIORITY: 'priority',
+    WEIGHT: 'weight',
+    OPERATE: 'operate',
+  };
+
+  // State for column visibility
+  const [visibleColumns, setVisibleColumns] = useState({});
+  const [showColumnSelector, setShowColumnSelector] = useState(false);
+
+  // Load saved column preferences from localStorage
+  useEffect(() => {
+    const savedColumns = localStorage.getItem('channels-table-columns');
+    if (savedColumns) {
+      try {
+        const parsed = JSON.parse(savedColumns);
+        // Make sure all columns are accounted for
+        const defaults = getDefaultColumnVisibility();
+        const merged = { ...defaults, ...parsed };
+        setVisibleColumns(merged);
+      } catch (e) {
+        console.error('Failed to parse saved column preferences', e);
+        initDefaultColumns();
+      }
+    } else {
+      initDefaultColumns();
+    }
+  }, []);
+
+  // Update table when column visibility changes
+  useEffect(() => {
+    if (Object.keys(visibleColumns).length > 0) {
+      // Save to localStorage
+      localStorage.setItem(
+        'channels-table-columns',
+        JSON.stringify(visibleColumns),
+      );
+    }
+  }, [visibleColumns]);
+
+  // Get default column visibility
+  const getDefaultColumnVisibility = () => {
+    return {
+      [COLUMN_KEYS.ID]: true,
+      [COLUMN_KEYS.NAME]: true,
+      [COLUMN_KEYS.GROUP]: true,
+      [COLUMN_KEYS.TYPE]: true,
+      [COLUMN_KEYS.STATUS]: true,
+      [COLUMN_KEYS.RESPONSE_TIME]: true,
+      [COLUMN_KEYS.BALANCE]: true,
+      [COLUMN_KEYS.PRIORITY]: true,
+      [COLUMN_KEYS.WEIGHT]: true,
+      [COLUMN_KEYS.OPERATE]: true,
+    };
+  };
+
+  // Initialize default column visibility
+  const initDefaultColumns = () => {
+    const defaults = getDefaultColumnVisibility();
+    setVisibleColumns(defaults);
+  };
+
+  // Handle column visibility change
+  const handleColumnVisibilityChange = (columnKey, checked) => {
+    const updatedColumns = { ...visibleColumns, [columnKey]: checked };
+    setVisibleColumns(updatedColumns);
+  };
+
+  // Handle "Select All" checkbox
+  const handleSelectAll = (checked) => {
+    const allKeys = Object.keys(COLUMN_KEYS).map((key) => COLUMN_KEYS[key]);
+    const updatedColumns = {};
+
+    allKeys.forEach((key) => {
+      updatedColumns[key] = checked;
+    });
+
+    setVisibleColumns(updatedColumns);
+  };
+
+  // Define all columns with keys
+  const allColumns = [
     {
+      key: COLUMN_KEYS.ID,
       title: t('ID'),
       dataIndex: 'id',
     },
     {
+      key: COLUMN_KEYS.NAME,
       title: t('名称'),
       dataIndex: 'name',
     },
     {
+      key: COLUMN_KEYS.GROUP,
       title: t('分组'),
       dataIndex: 'group',
       render: (text, record, index) => (
@@ -201,6 +292,7 @@ const ChannelsTable = () => {
       ),
     },
     {
+      key: COLUMN_KEYS.TYPE,
       title: t('类型'),
       dataIndex: 'type',
       render: (text, record, index) => {
@@ -212,6 +304,7 @@ const ChannelsTable = () => {
       },
     },
     {
+      key: COLUMN_KEYS.STATUS,
       title: t('状态'),
       dataIndex: 'status',
       render: (text, record, index) => {
@@ -237,6 +330,7 @@ const ChannelsTable = () => {
       },
     },
     {
+      key: COLUMN_KEYS.RESPONSE_TIME,
       title: t('响应时间'),
       dataIndex: 'response_time',
       render: (text, record, index) => (
@@ -244,6 +338,7 @@ const ChannelsTable = () => {
       ),
     },
     {
+      key: COLUMN_KEYS.BALANCE,
       title: t('已用/剩余'),
       dataIndex: 'expired_time',
       render: (text, record, index) => {
@@ -283,6 +378,7 @@ const ChannelsTable = () => {
       },
     },
     {
+      key: COLUMN_KEYS.PRIORITY,
       title: t('优先级'),
       dataIndex: 'priority',
       render: (text, record, index) => {
@@ -334,6 +430,7 @@ const ChannelsTable = () => {
       },
     },
     {
+      key: COLUMN_KEYS.WEIGHT,
       title: t('权重'),
       dataIndex: 'weight',
       render: (text, record, index) => {
@@ -385,6 +482,7 @@ const ChannelsTable = () => {
       },
     },
     {
+      key: COLUMN_KEYS.OPERATE,
       title: '',
       dataIndex: 'operate',
       fixed: 'right',
@@ -595,6 +693,87 @@ const ChannelsTable = () => {
     searchModel: '',
   };
 
+  // Filter columns based on visibility settings
+  const getVisibleColumns = () => {
+    return allColumns.filter((column) => visibleColumns[column.key]);
+  };
+
+  // Column selector modal
+  const renderColumnSelector = () => {
+    return (
+      <Modal
+        title={t('列设置')}
+        visible={showColumnSelector}
+        onCancel={() => setShowColumnSelector(false)}
+        footer={
+          <div className="flex justify-end">
+            <Button
+              theme="light"
+              onClick={() => initDefaultColumns()}
+              className="!rounded-full"
+            >
+              {t('重置')}
+            </Button>
+            <Button
+              theme="light"
+              onClick={() => setShowColumnSelector(false)}
+              className="!rounded-full"
+            >
+              {t('取消')}
+            </Button>
+            <Button
+              type='primary'
+              onClick={() => setShowColumnSelector(false)}
+              className="!rounded-full"
+            >
+              {t('确定')}
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ marginBottom: 20 }}>
+          <Checkbox
+            checked={Object.values(visibleColumns).every((v) => v === true)}
+            indeterminate={
+              Object.values(visibleColumns).some((v) => v === true) &&
+              !Object.values(visibleColumns).every((v) => v === true)
+            }
+            onChange={(e) => handleSelectAll(e.target.checked)}
+          >
+            {t('全选')}
+          </Checkbox>
+        </div>
+        <div
+          className="flex flex-wrap max-h-96 overflow-y-auto rounded-lg p-4"
+          style={{ border: '1px solid var(--semi-color-border)' }}
+        >
+          {allColumns.map((column) => {
+            // Skip columns without title
+            if (!column.title) {
+              return null;
+            }
+
+            return (
+              <div
+                key={column.key}
+                className="w-1/2 mb-4 pr-2"
+              >
+                <Checkbox
+                  checked={!!visibleColumns[column.key]}
+                  onChange={(e) =>
+                    handleColumnVisibilityChange(column.key, e.target.checked)
+                  }
+                >
+                  {column.title}
+                </Checkbox>
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
+    );
+  };
+
   const removeRecord = (record) => {
     let newDataSource = [...channels];
     if (record.id != null) {
@@ -686,32 +865,22 @@ const ChannelsTable = () => {
         tagChannelDates.response_time = tagChannelDates.response_time / 2;
       }
     }
-    // data.key = '' + data.id
     setChannels(channelDates);
-    if (channelDates.length >= pageSize) {
-      setChannelCount(channelDates.length + pageSize);
-    } else {
-      setChannelCount(channelDates.length);
-    }
   };
 
-  const loadChannels = async (startIdx, pageSize, idSort, enableTagMode) => {
+  const loadChannels = async (page, pageSize, idSort, enableTagMode) => {
     setLoading(true);
     const res = await API.get(
-      `/api/channel/?p=${startIdx}&page_size=${pageSize}&id_sort=${idSort}&tag_mode=${enableTagMode}`,
+      `/api/channel/?p=${page}&page_size=${pageSize}&id_sort=${idSort}&tag_mode=${enableTagMode}`,
     );
     if (res === undefined) {
       return;
     }
     const { success, message, data } = res.data;
     if (success) {
-      if (startIdx === 0) {
-        setChannelFormat(data, enableTagMode);
-      } else {
-        let newChannels = [...channels];
-        newChannels.splice(startIdx * pageSize, data.length, ...data);
-        setChannelFormat(newChannels, enableTagMode);
-      }
+      const { items, total } = data;
+      setChannelFormat(items, enableTagMode);
+      setChannelCount(total);
     } else {
       showError(message);
     }
@@ -724,7 +893,6 @@ const ChannelsTable = () => {
     channelToCopy.created_time = null;
     channelToCopy.balance = 0;
     channelToCopy.used_quota = 0;
-    // 删除可能导致类型不匹配的字段
     delete channelToCopy.test_time;
     delete channelToCopy.response_time;
     if (!channelToCopy) {
@@ -748,7 +916,7 @@ const ChannelsTable = () => {
   const refresh = async () => {
     const { searchKeyword, searchGroup, searchModel } = getFormValues();
     if (searchKeyword === '' && searchGroup === '' && searchModel === '') {
-      await loadChannels(activePage - 1, pageSize, idSort, enableTagMode);
+      await loadChannels(activePage, pageSize, idSort, enableTagMode);
     } else {
       await searchChannels(enableTagMode);
     }
@@ -765,7 +933,7 @@ const ChannelsTable = () => {
     setPageSize(localPageSize);
     setEnableTagMode(localEnableTagMode);
     setEnableBatchDelete(localEnableBatchDelete);
-    loadChannels(0, localPageSize, localIdSort, localEnableTagMode)
+    loadChannels(1, localPageSize, localIdSort, localEnableTagMode)
       .then()
       .catch((reason) => {
         showError(reason);
@@ -873,7 +1041,6 @@ const ChannelsTable = () => {
     try {
       if (searchKeyword === '' && searchGroup === '' && searchModel === '') {
         await loadChannels(activePage - 1, pageSize, idSort, enableTagMode);
-        // setActivePage(1);
         return;
       }
 
@@ -1012,24 +1179,18 @@ const ChannelsTable = () => {
     }
   };
 
-  let pageData = channels.slice(
-    (activePage - 1) * pageSize,
-    activePage * pageSize,
-  );
+  let pageData = channels;
 
   const handlePageChange = (page) => {
     setActivePage(page);
-    if (page === Math.ceil(channels.length / pageSize) + 1) {
-      // In this case we have to load more data and then append them.
-      loadChannels(page - 1, pageSize, idSort, enableTagMode).then((r) => { });
-    }
+    loadChannels(page, pageSize, idSort, enableTagMode).then(() => { });
   };
 
   const handlePageSizeChange = async (size) => {
     localStorage.setItem('page-size', size + '');
     setPageSize(size);
     setActivePage(1);
-    loadChannels(0, size, idSort, enableTagMode)
+    loadChannels(1, size, idSort, enableTagMode)
       .then()
       .catch((reason) => {
         showError(reason);
@@ -1039,8 +1200,6 @@ const ChannelsTable = () => {
   const fetchGroups = async () => {
     try {
       let res = await API.get(`/api/group/`);
-      // add 'all' option
-      // res.data.data.unshift('all');
       if (res === undefined) {
         return;
       }
@@ -1335,7 +1494,7 @@ const ChannelsTable = () => {
               onChange={(v) => {
                 localStorage.setItem('id-sort', v + '');
                 setIdSort(v);
-                loadChannels(0, pageSize, v, enableTagMode);
+                loadChannels(activePage, pageSize, v, enableTagMode);
               }}
             />
           </div>
@@ -1362,7 +1521,8 @@ const ChannelsTable = () => {
               onChange={(v) => {
                 localStorage.setItem('enable-tag-mode', v + '');
                 setEnableTagMode(v);
-                loadChannels(0, pageSize, idSort, v);
+                setActivePage(1);
+                loadChannels(1, pageSize, idSort, v);
               }}
             />
           </div>
@@ -1397,6 +1557,16 @@ const ChannelsTable = () => {
           >
             {t('刷新')}
           </Button>
+
+          <Button
+            theme='light'
+            type='tertiary'
+            icon={<IconSetting />}
+            onClick={() => setShowColumnSelector(true)}
+            className="!rounded-full w-full md:w-auto"
+          >
+            {t('列设置')}
+          </Button>
         </div>
 
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto order-1 md:order-2">
@@ -1424,7 +1594,7 @@ const ChannelsTable = () => {
             <div className="w-full md:w-48">
               <Form.Input
                 field="searchModel"
-                prefix={<IconFilter />}
+                prefix={<IconSearch />}
                 placeholder={t('模型关键字')}
                 className="!rounded-full"
                 showClear
@@ -1481,6 +1651,7 @@ const ChannelsTable = () => {
 
   return (
     <>
+      {renderColumnSelector()}
       <EditTagModal
         visible={showEditTag}
         tag={editingTag}
@@ -1501,7 +1672,7 @@ const ChannelsTable = () => {
         bordered={false}
       >
         <Table
-          columns={columns}
+          columns={getVisibleColumns()}
           dataSource={pageData}
           scroll={{ x: 'max-content' }}
           pagination={{
@@ -1513,7 +1684,7 @@ const ChannelsTable = () => {
             formatPageText: (page) => t('第 {{start}} - {{end}} 条，共 {{total}} 条', {
               start: page.currentStart,
               end: page.currentEnd,
-              total: channels.length,
+              total: channelCount,
             }),
             onPageSizeChange: (size) => {
               handlePageSizeChange(size);
@@ -1632,7 +1803,6 @@ const ChannelsTable = () => {
           </div>
         }
         maskClosable={!isBatchTesting}
-        centered={true}
         className="!rounded-lg"
         size="large"
       >
@@ -1733,7 +1903,6 @@ const ChannelsTable = () => {
                     key: model
                   }))}
                 pagination={false}
-                size="middle"
               />
             </div>
           )}
