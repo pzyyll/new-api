@@ -1,10 +1,11 @@
 package controller
 
 import (
-	"github.com/gin-gonic/gin"
 	"one-api/common"
 	"one-api/dto"
 	"one-api/model"
+
+	"github.com/gin-gonic/gin"
 )
 
 func GetSubscription(c *gin.Context) {
@@ -88,5 +89,40 @@ func GetUsage(c *gin.Context) {
 		TotalUsage: amount * 100,
 	}
 	c.JSON(200, usage)
-	return
+}
+
+func GetUsageVer2(c *gin.Context) {
+	var quota, remainQuota int
+	var err error
+	var token *model.Token
+	if common.DisplayTokenStatEnabled {
+		tokenId := c.GetInt("token_id")
+		token, err = model.GetTokenById(tokenId)
+		quota = token.UsedQuota
+		remainQuota = token.RemainQuota
+	} else {
+		userId := c.GetInt("id")
+		quota, err = model.GetUserUsedQuota(userId)
+		remainQuota, err = model.GetUserQuota(userId, false)
+	}
+	if err != nil {
+		openAIError := dto.OpenAIError{
+			Message: err.Error(),
+			Type:    "new_api_error",
+		}
+		c.JSON(200, gin.H{
+			"error": openAIError,
+		})
+		return
+	}
+	amount := float64(quota)
+	remain := float64(remainQuota)
+	if common.DisplayInCurrencyEnabled {
+		amount /= common.QuotaPerUnit
+		remain /= common.QuotaPerUnit
+	}
+	c.JSON(200, gin.H{
+		"total_usage": amount,
+		"remain":      remain,
+	})
 }
