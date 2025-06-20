@@ -155,14 +155,33 @@ func GeminiHelper(c *gin.Context) (openaiErr *dto.OpenAIErrorWithStatusCode) {
 		return service.OpenAIErrorWrapperLocal(err, "marshal_text_request_failed", http.StatusInternalServerError)
 	}
 
+	if common.DebugEnabled {
+		println("Gemini request body: %s", string(requestBody))
+	}
+
 	resp, err := adaptor.DoRequest(c, relayInfo, bytes.NewReader(requestBody))
 	if err != nil {
 		common.LogError(c, "Do gemini request failed: "+err.Error())
 		return service.OpenAIErrorWrapperLocal(err, "do_request_failed", http.StatusInternalServerError)
 	}
 
+	statusCodeMappingStr := c.GetString("status_code_mapping")
+
+	var httpResp *http.Response
+	if resp != nil {
+		httpResp = resp.(*http.Response)
+		relayInfo.IsStream = relayInfo.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+		if httpResp.StatusCode != http.StatusOK {
+			openaiErr = service.RelayErrorHandler(httpResp, false)
+			// reset status code 重置状态码
+			service.ResetStatusCode(openaiErr, statusCodeMappingStr)
+			return openaiErr
+		}
+	}
+
 	usage, openaiErr := adaptor.DoResponse(c, resp.(*http.Response), relayInfo)
 	if openaiErr != nil {
+		service.ResetStatusCode(openaiErr, statusCodeMappingStr)
 		return openaiErr
 	}
 
