@@ -9,7 +9,8 @@ import {
   Divider,
   Avatar,
   Modal,
-  Tag
+  Tag,
+  Switch
 } from '@douyinfe/semi-ui';
 import {
   IllustrationNoResult,
@@ -44,6 +45,12 @@ const SettingsAPIInfo = ({ options, refresh }) => {
     route: '',
     color: 'blue'
   });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+
+  // 面板启用状态 state
+  const [panelEnabled, setPanelEnabled] = useState(true);
 
   const colorOptions = [
     { value: 'blue', label: 'blue' },
@@ -82,7 +89,7 @@ const SettingsAPIInfo = ({ options, refresh }) => {
     try {
       setLoading(true);
       const apiInfoJson = JSON.stringify(apiInfoList);
-      await updateOption('ApiInfo', apiInfoJson);
+      await updateOption('console_setting.api_info', apiInfoJson);
       setHasChanges(false);
     } catch (error) {
       console.error('API信息更新失败', error);
@@ -124,7 +131,7 @@ const SettingsAPIInfo = ({ options, refresh }) => {
       const newList = apiInfoList.filter(api => api.id !== deletingApi.id);
       setApiInfoList(newList);
       setHasChanges(true);
-      showSuccess('API信息已删除，请及时点击“保存配置”进行保存');
+      showSuccess('API信息已删除，请及时点击“保存设置”进行保存');
     }
     setShowDeleteModal(false);
     setDeletingApi(null);
@@ -158,7 +165,7 @@ const SettingsAPIInfo = ({ options, refresh }) => {
       setApiInfoList(newList);
       setHasChanges(true);
       setShowApiModal(false);
-      showSuccess(editingApi ? 'API信息已更新，请及时点击“保存配置”进行保存' : 'API信息已添加，请及时点击“保存配置”进行保存');
+      showSuccess(editingApi ? 'API信息已更新，请及时点击“保存设置”进行保存' : 'API信息已添加，请及时点击“保存设置”进行保存');
     } catch (error) {
       showError('操作失败: ' + error.message);
     } finally {
@@ -182,10 +189,35 @@ const SettingsAPIInfo = ({ options, refresh }) => {
   };
 
   useEffect(() => {
-    if (options.ApiInfo !== undefined) {
-      parseApiInfo(options.ApiInfo);
+    const apiInfoStr = options['console_setting.api_info'] ?? options.ApiInfo;
+    if (apiInfoStr !== undefined) {
+      parseApiInfo(apiInfoStr);
     }
-  }, [options.ApiInfo]);
+  }, [options['console_setting.api_info'], options.ApiInfo]);
+
+  useEffect(() => {
+    const enabledStr = options['console_setting.api_info_enabled'];
+    setPanelEnabled(enabledStr === undefined ? true : enabledStr === 'true' || enabledStr === true);
+  }, [options['console_setting.api_info_enabled']]);
+
+  const handleToggleEnabled = async (checked) => {
+    const newValue = checked ? 'true' : 'false';
+    try {
+      const res = await API.put('/api/option/', {
+        key: 'console_setting.api_info_enabled',
+        value: newValue,
+      });
+      if (res.data.success) {
+        setPanelEnabled(checked);
+        showSuccess(t('设置已保存'));
+        refresh?.();
+      } else {
+        showError(res.data.message);
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+  };
 
   const columns = [
     {
@@ -237,6 +269,7 @@ const SettingsAPIInfo = ({ options, refresh }) => {
     {
       title: t('操作'),
       fixed: 'right',
+      width: 150,
       render: (_, record) => (
         <Space>
           <Button
@@ -264,12 +297,25 @@ const SettingsAPIInfo = ({ options, refresh }) => {
     },
   ];
 
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) {
+      showError('请先选择要删除的API信息');
+      return;
+    }
+
+    const newList = apiInfoList.filter(api => !selectedRowKeys.includes(api.id));
+    setApiInfoList(newList);
+    setSelectedRowKeys([]);
+    setHasChanges(true);
+    showSuccess(`已删除 ${selectedRowKeys.length} 个API信息，请及时点击“保存设置”进行保存`);
+  };
+
   const renderHeader = () => (
     <div className="flex flex-col w-full">
       <div className="mb-2">
         <div className="flex items-center text-blue-500">
           <Settings size={16} className="mr-2" />
-          <Text>{t('API信息管理，可以配置多个API地址用于状态展示和负载均衡')}</Text>
+          <Text>{t('API信息管理，可以配置多个API地址用于状态展示和负载均衡（最多50个）')}</Text>
         </div>
       </div>
 
@@ -287,6 +333,16 @@ const SettingsAPIInfo = ({ options, refresh }) => {
             {t('添加API')}
           </Button>
           <Button
+            icon={<Trash2 size={14} />}
+            type='danger'
+            theme='light'
+            onClick={handleBatchDelete}
+            disabled={selectedRowKeys.length === 0}
+            className="!rounded-full w-full md:w-auto"
+          >
+            {t('批量删除')} {selectedRowKeys.length > 0 && `(${selectedRowKeys.length})`}
+          </Button>
+          <Button
             icon={<Save size={14} />}
             onClick={submitApiInfo}
             loading={loading}
@@ -294,21 +350,76 @@ const SettingsAPIInfo = ({ options, refresh }) => {
             type='secondary'
             className="!rounded-full w-full md:w-auto"
           >
-            {t('保存配置')}
+            {t('保存设置')}
           </Button>
+        </div>
+
+        {/* 启用开关 */}
+        <div className="order-1 md:order-2 flex items-center gap-2">
+          <Switch
+            checked={panelEnabled}
+            onChange={handleToggleEnabled}
+          />
+          <Text>{panelEnabled ? t('已启用') : t('已禁用')}</Text>
         </div>
       </div>
     </div>
   );
+
+  // 计算当前页显示的数据
+  const getCurrentPageData = () => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return apiInfoList.slice(startIndex, endIndex);
+  };
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (selectedRowKeys, selectedRows) => {
+      setSelectedRowKeys(selectedRowKeys);
+    },
+    onSelect: (record, selected, selectedRows) => {
+      console.log(`选择行: ${selected}`, record);
+    },
+    onSelectAll: (selected, selectedRows) => {
+      console.log(`全选: ${selected}`, selectedRows);
+    },
+    getCheckboxProps: (record) => ({
+      disabled: false,
+      name: record.id,
+    }),
+  };
 
   return (
     <>
       <Form.Section text={renderHeader()}>
         <Table
           columns={columns}
-          dataSource={apiInfoList}
+          dataSource={getCurrentPageData()}
+          rowSelection={rowSelection}
+          rowKey="id"
           scroll={{ x: 'max-content' }}
-          pagination={false}
+          pagination={{
+            currentPage: currentPage,
+            pageSize: pageSize,
+            total: apiInfoList.length,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            formatPageText: (page) => t('第 {{start}} - {{end}} 条，共 {{total}} 条', {
+              start: page.currentStart,
+              end: page.currentEnd,
+              total: apiInfoList.length,
+            }),
+            pageSizeOptions: ['5', '10', '20', '50'],
+            onChange: (page, size) => {
+              setCurrentPage(page);
+              setPageSize(size);
+            },
+            onShowSizeChange: (current, size) => {
+              setCurrentPage(1);
+              setPageSize(size);
+            }
+          }}
           size='middle'
           loading={loading}
           empty={
