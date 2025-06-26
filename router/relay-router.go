@@ -81,6 +81,13 @@ func SetRelayRouter(router *gin.Engine) {
 	}
 
 	relayGeminiRouter := router.Group("/v1beta")
+	registerGeminiRouterGroup(relayGeminiRouter)
+
+	relayGeminiRouterV1 := router.Group("/v1/v1beta")
+	registerGeminiRouterGroup(relayGeminiRouterV1)
+}
+
+func registerGeminiRouterGroup(relayGeminiRouter *gin.RouterGroup) {
 	relayGeminiRouter.Use(middleware.TokenAuth())
 	relayGeminiRouter.Use(middleware.ModelRequestRateLimit())
 	relayGeminiRouter.Use(middleware.Distribute())
