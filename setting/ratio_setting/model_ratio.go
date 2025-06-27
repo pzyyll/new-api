@@ -432,18 +432,16 @@ func GetCompletionRatio(name string) float64 {
 	if strings.HasPrefix(name, "gpt-4o-gizmo") {
 		name = "gpt-4o-gizmo-*"
 	}
-	if strings.Contains(name, "/") {
-		if ratio, ok := CompletionRatio[name]; ok {
-			return ratio
-		}
+
+	if ratio, ok := CompletionRatio[name]; ok {
+		return ratio
 	}
+
 	hardCodedRatio, contain := getHardcodedCompletionModelRatio(name)
 	if contain {
 		return hardCodedRatio
 	}
-	if ratio, ok := CompletionRatio[name]; ok {
-		return ratio
-	}
+
 	return hardCodedRatio
 }
 
