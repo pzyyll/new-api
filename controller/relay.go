@@ -287,10 +287,6 @@ func shouldRetry(c *gin.Context, openaiErr *dto.OpenAIErrorWithStatusCode, retry
 		return true
 	}
 	if openaiErr.StatusCode/100 == 5 {
-		// 超时不重试
-		if openaiErr.StatusCode == 504 || openaiErr.StatusCode == 524 {
-			return false
-		}
 		return true
 	}
 	if openaiErr.StatusCode == http.StatusBadRequest {
