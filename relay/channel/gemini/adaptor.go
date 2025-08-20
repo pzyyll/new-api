@@ -42,6 +42,10 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	switch request.Size {
 	case "1024x1024":
 		aspectRatio = "1:1"
+	case "768x1024":
+		aspectRatio = "3:4"
+	case "1024x768":
+		aspectRatio = "4:3"
 	case "1024x1792":
 		aspectRatio = "9:16"
 	case "1792x1024":
