@@ -2,8 +2,9 @@ package ratio_setting
 
 import (
 	"encoding/json"
-	"one-api/common"
 	"sync"
+
+	"github.com/QuantumNous/new-api/common"
 )
 
 var defaultCacheRatio = map[string]float64{
@@ -25,6 +26,16 @@ var defaultCacheRatio = map[string]float64{
 	"gpt-4o-mini-realtime-preview":        0.5,
 	"gpt-4.5-preview":                     0.5,
 	"gpt-4.5-preview-2025-02-27":          0.5,
+	"gpt-4.1":                             0.25,
+	"gpt-4.1-mini":                        0.25,
+	"gpt-4.1-nano":                        0.25,
+	"gpt-5":                               0.1,
+	"gpt-5-2025-08-07":                    0.1,
+	"gpt-5-chat-latest":                   0.1,
+	"gpt-5-mini":                          0.1,
+	"gpt-5-mini-2025-08-07":               0.1,
+	"gpt-5-nano":                          0.1,
+	"gpt-5-nano-2025-08-07":               0.1,
 	"deepseek-chat":                       0.25,
 	"deepseek-reasoner":                   0.25,
 	"deepseek-coder":                      0.25,
@@ -40,6 +51,12 @@ var defaultCacheRatio = map[string]float64{
 	"claude-sonnet-4-20250514-thinking":   0.1,
 	"claude-opus-4-20250514":              0.1,
 	"claude-opus-4-20250514-thinking":     0.1,
+	"claude-opus-4-1-20250805":            0.1,
+	"claude-opus-4-1-20250805-thinking":   0.1,
+	"claude-sonnet-4-5-20250929":          0.1,
+	"claude-sonnet-4-5-20250929-thinking": 0.1,
+	"claude-opus-4-5-20251101":            0.1,
+	"claude-opus-4-5-20251101-thinking":   0.1,
 }
 
 var defaultCreateCacheRatio = map[string]float64{
@@ -55,6 +72,12 @@ var defaultCreateCacheRatio = map[string]float64{
 	"claude-sonnet-4-20250514-thinking":   1.25,
 	"claude-opus-4-20250514":              1.25,
 	"claude-opus-4-20250514-thinking":     1.25,
+	"claude-opus-4-1-20250805":            1.25,
+	"claude-opus-4-1-20250805-thinking":   1.25,
+	"claude-sonnet-4-5-20250929":          1.25,
+	"claude-sonnet-4-5-20250929-thinking": 1.25,
+	"claude-opus-4-5-20251101":            1.25,
+	"claude-opus-4-5-20251101-thinking":   1.25,
 }
 
 //var defaultCreateCacheRatio = map[string]float64{}
@@ -75,7 +98,7 @@ func CacheRatio2JSONString() string {
 	defer cacheRatioMapMutex.RUnlock()
 	jsonBytes, err := json.Marshal(cacheRatioMap)
 	if err != nil {
-		common.SysError("error marshalling cache ratio: " + err.Error())
+		common.SysLog("error marshalling cache ratio: " + err.Error())
 	}
 	return string(jsonBytes)
 }
