@@ -19,16 +19,7 @@ var awsModelIDMap = map[string]string{
 
 	"claude-sonnet-4-5-20250929": "anthropic.claude-sonnet-4-5-20250929-v1:0",
 	"claude-haiku-4-5-20251001":  "anthropic.claude-haiku-4-5-20251001-v1:0",
-	"claude-opus-4-5-20251101":  "anthropic.claude-opus-4-5-20251101-v1:0",
-
-	"us.claude-sonnet-4-5-20250929": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-	"us.claude-haiku-4-5-20251001":  "us.anthropic.claude-haiku-4-5-20251001-v1:0",
-	"us.claude-opus-4-5-20251101":  "us.anthropic.claude-opus-4-5-20251101-v1:0",
-
-	"global.claude-sonnet-4-5-20250929": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
-	"global.claude-haiku-4-5-20251001":  "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-	"global.claude-opus-4-5-20251101":  "global.anthropic.claude-opus-4-5-20251101-v1:0",
-
+	"claude-opus-4-5-20251101":   "anthropic.claude-opus-4-5-20251101-v1:0",
 	// Nova models
 	"nova-micro-v1:0":   "amazon.nova-micro-v1:0",
 	"nova-lite-v1:0":    "amazon.nova-lite-v1:0",
