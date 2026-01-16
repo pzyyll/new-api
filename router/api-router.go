@@ -96,7 +96,7 @@ func SetApiRouter(router *gin.Engine) {
 
 				// Check-in routes
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
-				selfRoute.POST("/checkin", controller.DoCheckin)
+				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
 			}
 
 			adminRoute := userRoute.Group("/")
@@ -156,6 +156,12 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.POST("/fix", controller.FixChannelsAbilities)
 			channelRoute.GET("/fetch_models/:id", controller.FetchUpstreamModels)
 			channelRoute.POST("/fetch_models", controller.FetchModels)
+			channelRoute.POST("/codex/oauth/start", controller.StartCodexOAuth)
+			channelRoute.POST("/codex/oauth/complete", controller.CompleteCodexOAuth)
+			channelRoute.POST("/:id/codex/oauth/start", controller.StartCodexOAuthForChannel)
+			channelRoute.POST("/:id/codex/oauth/complete", controller.CompleteCodexOAuthForChannel)
+			channelRoute.POST("/:id/codex/refresh", controller.RefreshCodexChannelCredential)
+			channelRoute.GET("/:id/codex/usage", controller.GetCodexChannelUsage)
 			channelRoute.POST("/ollama/pull", controller.OllamaPullModel)
 			channelRoute.POST("/ollama/pull/stream", controller.OllamaPullModelStream)
 			channelRoute.DELETE("/ollama/delete", controller.OllamaDeleteModel)
@@ -269,24 +275,18 @@ func SetApiRouter(router *gin.Engine) {
 		deploymentsRoute := apiRouter.Group("/deployments")
 		deploymentsRoute.Use(middleware.AdminAuth())
 		{
-			// List and search deployments
+			deploymentsRoute.GET("/settings", controller.GetModelDeploymentSettings)
+			deploymentsRoute.POST("/settings/test-connection", controller.TestIoNetConnection)
 			deploymentsRoute.GET("/", controller.GetAllDeployments)
 			deploymentsRoute.GET("/search", controller.SearchDeployments)
-
-			// Connection utilities
 			deploymentsRoute.POST("/test-connection", controller.TestIoNetConnection)
-
-			// Resource and configuration endpoints
 			deploymentsRoute.GET("/hardware-types", controller.GetHardwareTypes)
 			deploymentsRoute.GET("/locations", controller.GetLocations)
 			deploymentsRoute.GET("/available-replicas", controller.GetAvailableReplicas)
 			deploymentsRoute.POST("/price-estimation", controller.GetPriceEstimation)
 			deploymentsRoute.GET("/check-name", controller.CheckClusterNameAvailability)
-
-			// Create new deployment
 			deploymentsRoute.POST("/", controller.CreateDeployment)
 
-			// Individual deployment operations
 			deploymentsRoute.GET("/:id", controller.GetDeployment)
 			deploymentsRoute.GET("/:id/logs", controller.GetDeploymentLogs)
 			deploymentsRoute.GET("/:id/containers", controller.ListDeploymentContainers)
@@ -295,14 +295,6 @@ func SetApiRouter(router *gin.Engine) {
 			deploymentsRoute.PUT("/:id/name", controller.UpdateDeploymentName)
 			deploymentsRoute.POST("/:id/extend", controller.ExtendDeployment)
 			deploymentsRoute.DELETE("/:id", controller.DeleteDeployment)
-
-			// Future batch operations:
-			// deploymentsRoute.POST("/:id/start", controller.StartDeployment)
-			// deploymentsRoute.POST("/:id/stop", controller.StopDeployment)
-			// deploymentsRoute.POST("/:id/restart", controller.RestartDeployment)
-			// deploymentsRoute.POST("/batch_delete", controller.BatchDeleteDeployments)
-			// deploymentsRoute.POST("/batch_start", controller.BatchStartDeployments)
-			// deploymentsRoute.POST("/batch_stop", controller.BatchStopDeployments)
 		}
 	}
 }
