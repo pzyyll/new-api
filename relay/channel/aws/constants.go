@@ -92,9 +92,6 @@ var awsModelCanCrossRegionMap = map[string]map[string]bool{
 		"ap": true,
 		"eu": true,
 	},
-	"anthropic.claude-opus-4-6-v1": {
-		"us": true,
-	},
 	// Nova models - all support three major regions
 	"amazon.nova-micro-v1:0": {
 		"us":   true,
