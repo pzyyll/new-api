@@ -46,6 +46,8 @@ export default function SettingsPaymentGateway(props) {
     StripeUnitPrice: 8.0,
     StripeMinTopUp: 1,
     StripePromotionCodesEnabled: false,
+    StripeWechatPayEnabled: false,
+    StripeAlipayEnabled: false,
   });
   const [originInputs, setOriginInputs] = useState({});
   const formApiRef = useRef(null);
@@ -67,6 +69,14 @@ export default function SettingsPaymentGateway(props) {
         StripePromotionCodesEnabled:
           props.options.StripePromotionCodesEnabled !== undefined
             ? props.options.StripePromotionCodesEnabled
+            : false,
+        StripeWechatPayEnabled:
+          props.options.StripeWechatPayEnabled !== undefined
+            ? props.options.StripeWechatPayEnabled
+            : false,
+        StripeAlipayEnabled:
+          props.options.StripeAlipayEnabled !== undefined
+            ? props.options.StripeAlipayEnabled
             : false,
       };
       setInputs(currentInputs);
@@ -127,6 +137,26 @@ export default function SettingsPaymentGateway(props) {
         options.push({
           key: 'StripePromotionCodesEnabled',
           value: inputs.StripePromotionCodesEnabled ? 'true' : 'false',
+        });
+      }
+      if (
+        originInputs['StripeWechatPayEnabled'] !==
+          inputs.StripeWechatPayEnabled &&
+        inputs.StripeWechatPayEnabled !== undefined
+      ) {
+        options.push({
+          key: 'StripeWechatPayEnabled',
+          value: inputs.StripeWechatPayEnabled ? 'true' : 'false',
+        });
+      }
+      if (
+        originInputs['StripeAlipayEnabled'] !==
+          inputs.StripeAlipayEnabled &&
+        inputs.StripeAlipayEnabled !== undefined
+      ) {
+        options.push({
+          key: 'StripeAlipayEnabled',
+          value: inputs.StripeAlipayEnabled ? 'true' : 'false',
         });
       }
 
@@ -240,16 +270,38 @@ export default function SettingsPaymentGateway(props) {
                 placeholder={t('例如：2，就是最低充值2$')}
               />
             </Col>
-            <Col xs={24} sm={24} md={8} lg={8} xl={8}>
-              <Form.Switch
-                field='StripePromotionCodesEnabled'
-                size='default'
-                checkedText='｜'
-                uncheckedText='〇'
-                label={t('允许在 Stripe 支付中输入促销码')}
-              />
-            </Col>
           </Row>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '16px',
+              marginTop: 16,
+              alignItems: 'center',
+            }}
+          >
+            <Form.Switch
+              field='StripePromotionCodesEnabled'
+              size='default'
+              checkedText='｜'
+              uncheckedText='〇'
+              label={t('允许在 Stripe 支付中输入促销码')}
+            />
+            <Form.Switch
+              field='StripeWechatPayEnabled'
+              size='default'
+              checkedText='｜'
+              uncheckedText='〇'
+              label={t('启用 Stripe 微信支付')}
+            />
+            <Form.Switch
+              field='StripeAlipayEnabled'
+              size='default'
+              checkedText='｜'
+              uncheckedText='〇'
+              label={t('启用 Stripe 支付宝')}
+            />
+          </div>
           <Button onClick={submitStripeSetting}>{t('更新 Stripe 设置')}</Button>
         </Form.Section>
       </Form>

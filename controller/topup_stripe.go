@@ -297,6 +297,22 @@ func genStripeLink(referenceId string, customerId string, email string, amount i
 		AllowPromotionCodes: stripe.Bool(setting.StripePromotionCodesEnabled),
 	}
 
+	if setting.StripeAlipayEnabled || setting.StripeWechatPayEnabled {
+		params.PaymentMethodTypes = []*string{stripe.String("card")}
+
+		if setting.StripeWechatPayEnabled {
+			params.PaymentMethodOptions = &stripe.CheckoutSessionPaymentMethodOptionsParams{
+				WeChatPay: &stripe.CheckoutSessionPaymentMethodOptionsWeChatPayParams{
+					Client: stripe.String("web"),
+				},
+			}
+			params.PaymentMethodTypes = append(params.PaymentMethodTypes, stripe.String("wechat_pay"))
+		}
+		if setting.StripeAlipayEnabled {
+			params.PaymentMethodTypes = append(params.PaymentMethodTypes, stripe.String("alipay"))
+		}
+	}
+
 	if "" == customerId {
 		if "" != email {
 			params.CustomerEmail = stripe.String(email)

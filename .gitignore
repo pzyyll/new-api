@@ -19,6 +19,8 @@ tiktoken_cache
 
 .aider.*
 .claude
+.sisyphus
+.opencode
 
 .eslintcache
 .gocache
