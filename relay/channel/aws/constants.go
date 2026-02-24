@@ -19,7 +19,6 @@ var awsModelIDMap = map[string]string{
 	"claude-haiku-4-5-20251001":  "anthropic.claude-haiku-4-5-20251001-v1:0",
 	"claude-opus-4-5-20251101":   "anthropic.claude-opus-4-5-20251101-v1:0",
 	"claude-opus-4-6":            "anthropic.claude-opus-4-6-v1",
-	"claude-sonnet-4-6":          "anthropic.claude-sonnet-4-6",
 	// Nova models
 	"nova-micro-v1:0":   "amazon.nova-micro-v1:0",
 	"nova-lite-v1:0":    "amazon.nova-lite-v1:0",
@@ -95,11 +94,6 @@ var awsModelCanCrossRegionMap = map[string]map[string]bool{
 		"eu": true,
 	},
 	"anthropic.claude-haiku-4-5-20251001-v1:0": {
-		"us": true,
-		"ap": true,
-		"eu": true,
-	},
-	"anthropic.claude-sonnet-4-6": {
 		"us": true,
 		"ap": true,
 		"eu": true,
