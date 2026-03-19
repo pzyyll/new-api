@@ -442,7 +442,6 @@ func GetCompletionRatio(name string) float64 {
 			return ratio
 		}
 	}
-
 	hardCodedRatio, contain := getHardcodedCompletionModelRatio(name)
 	if contain {
 		return hardCodedRatio

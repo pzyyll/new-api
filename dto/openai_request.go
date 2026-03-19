@@ -402,7 +402,7 @@ func (m *MessageImageUrl) IsRemoteImage() bool {
 }
 
 type MessageInputAudio struct {
-	Data   string `json:"data"` // base64
+	Data   string `json:"data"` //base64
 	Format string `json:"format"`
 }
 

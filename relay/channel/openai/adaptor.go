@@ -156,9 +156,9 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 		model_ := info.UpstreamModelName
 		// 2025年5月10日后创建的渠道不移除.
-		// if info.ChannelCreateTime < constant2.AzureNoRemoveDotTime {
-		// 	model_ = strings.Replace(model_, ".", "", -1)
-		// }
+		if info.ChannelCreateTime < constant.AzureNoRemoveDotTime {
+			model_ = strings.Replace(model_, ".", "", -1)
+		}
 		// https://github.com/songquanpeng/one-api/issues/67
 		requestURL = fmt.Sprintf("/openai/deployments/%s/%s", model_, task)
 		if info.RelayMode == relayconstant.RelayModeRealtime {

@@ -16,8 +16,6 @@ new-api
 .DS_Store
 tiktoken_cache
 
-
-
 .aider.*
 .claude
 .sisyphus
