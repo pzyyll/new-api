@@ -28,6 +28,8 @@ tiktoken_cache
 web/bun.lock
 plans
 .claude
+.opencode
+.sisyphus
 
 electron/node_modules
 electron/dist
