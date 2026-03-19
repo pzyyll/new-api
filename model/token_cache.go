@@ -2,15 +2,16 @@ package model
 
 import (
 	"fmt"
-	"one-api/common"
-	"one-api/constant"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 )
 
 func cacheSetToken(token Token) error {
 	key := common.GenerateHMAC(token.Key)
 	token.Clean()
-	err := common.RedisHSetObj(fmt.Sprintf("token:%s", key), &token, time.Duration(constant.TokenCacheSeconds)*time.Second)
+	err := common.RedisHSetObj(fmt.Sprintf("token:%s", key), &token, time.Duration(common.RedisKeyCacheSeconds())*time.Second)
 	if err != nil {
 		return err
 	}
@@ -19,7 +20,7 @@ func cacheSetToken(token Token) error {
 
 func cacheDeleteToken(key string) error {
 	key = common.GenerateHMAC(key)
-	err := common.RedisHDelObj(fmt.Sprintf("token:%s", key))
+	err := common.RedisDelKey(fmt.Sprintf("token:%s", key))
 	if err != nil {
 		return err
 	}

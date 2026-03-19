@@ -3,23 +3,31 @@ package deepseek
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
-	"one-api/dto"
-	"one-api/relay/channel"
-	"one-api/relay/channel/openai"
-	relaycommon "one-api/relay/common"
-	"one-api/relay/constant"
+	"strings"
+
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/claude"
+	"github.com/QuantumNous/new-api/relay/channel/openai"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
 }
 
-func (a *Adaptor) ConvertClaudeRequest(*gin.Context, *relaycommon.RelayInfo, *dto.ClaudeRequest) (any, error) {
+func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
 	//TODO implement me
-	panic("implement me")
-	return nil, nil
+	return nil, errors.New("not implemented")
+}
+
+func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, req *dto.ClaudeRequest) (any, error) {
+	adaptor := claude.Adaptor{}
+	return adaptor.ConvertClaudeRequest(c, info, req)
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
@@ -36,11 +44,20 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	switch info.RelayMode {
-	case constant.RelayModeCompletions:
-		return fmt.Sprintf("%s/beta/completions", info.BaseUrl), nil
+	fimBaseUrl := info.ChannelBaseUrl
+	switch info.RelayFormat {
+	case types.RelayFormatClaude:
+		return fmt.Sprintf("%s/anthropic/v1/messages", info.ChannelBaseUrl), nil
 	default:
-		return fmt.Sprintf("%s/v1/chat/completions", info.BaseUrl), nil
+		if !strings.HasSuffix(info.ChannelBaseUrl, "/beta") {
+			fimBaseUrl += "/beta"
+		}
+		switch info.RelayMode {
+		case constant.RelayModeCompletions:
+			return fmt.Sprintf("%s/completions", fimBaseUrl), nil
+		default:
+			return fmt.Sprintf("%s/v1/chat/completions", info.ChannelBaseUrl), nil
+		}
 	}
 }
 
@@ -66,17 +83,24 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 	return nil, errors.New("not implemented")
 }
 
+func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
+	// TODO implement me
+	return nil, errors.New("not implemented")
+}
+
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
-func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *dto.OpenAIErrorWithStatusCode) {
-	if info.IsStream {
-		err, usage = openai.OaiStreamHandler(c, resp, info)
-	} else {
-		err, usage = openai.OpenaiHandler(c, resp, info)
+func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	switch info.RelayFormat {
+	case types.RelayFormatClaude:
+		adaptor := claude.Adaptor{}
+		return adaptor.DoResponse(c, resp, info)
+	default:
+		adaptor := openai.Adaptor{}
+		return adaptor.DoResponse(c, resp, info)
 	}
-	return
 }
 
 func (a *Adaptor) GetModelList() []string {

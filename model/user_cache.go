@@ -1,12 +1,14 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"one-api/common"
-	"one-api/constant"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/bytedance/gopkg/util/gopool"
 )
@@ -23,28 +25,23 @@ type UserBase struct {
 }
 
 func (user *UserBase) WriteContext(c *gin.Context) {
-	c.Set(constant.ContextKeyUserGroup, user.Group)
-	c.Set(constant.ContextKeyUserQuota, user.Quota)
-	c.Set(constant.ContextKeyUserStatus, user.Status)
-	c.Set(constant.ContextKeyUserEmail, user.Email)
-	c.Set("username", user.Username)
-	c.Set(constant.ContextKeyUserSetting, user.GetSetting())
+	common.SetContextKey(c, constant.ContextKeyUserGroup, user.Group)
+	common.SetContextKey(c, constant.ContextKeyUserQuota, user.Quota)
+	common.SetContextKey(c, constant.ContextKeyUserStatus, user.Status)
+	common.SetContextKey(c, constant.ContextKeyUserEmail, user.Email)
+	common.SetContextKey(c, constant.ContextKeyUserName, user.Username)
+	common.SetContextKey(c, constant.ContextKeyUserSetting, user.GetSetting())
 }
 
-func (user *UserBase) GetSetting() map[string]interface{} {
-	if user.Setting == "" {
-		return nil
+func (user *UserBase) GetSetting() dto.UserSetting {
+	setting := dto.UserSetting{}
+	if user.Setting != "" {
+		err := common.Unmarshal([]byte(user.Setting), &setting)
+		if err != nil {
+			common.SysLog("failed to unmarshal setting: " + err.Error())
+		}
 	}
-	return common.StrToMap(user.Setting)
-}
-
-func (user *UserBase) SetSetting(setting map[string]interface{}) {
-	settingBytes, err := json.Marshal(setting)
-	if err != nil {
-		common.SysError("failed to marshal setting: " + err.Error())
-		return
-	}
-	user.Setting = string(settingBytes)
+	return setting
 }
 
 // getUserCacheKey returns the key for user cache
@@ -57,7 +54,7 @@ func invalidateUserCache(userId int) error {
 	if !common.RedisEnabled {
 		return nil
 	}
-	return common.RedisHDelObj(getUserCacheKey(userId))
+	return common.RedisDelKey(getUserCacheKey(userId))
 }
 
 // updateUserCache updates all user cache fields using hash
@@ -69,7 +66,7 @@ func updateUserCache(user User) error {
 	return common.RedisHSetObj(
 		getUserCacheKey(user.Id),
 		user.ToBaseUser(),
-		time.Duration(constant.UserId2QuotaCacheSeconds)*time.Second,
+		time.Duration(common.RedisKeyCacheSeconds())*time.Second,
 	)
 }
 
@@ -82,7 +79,7 @@ func GetUserCache(userId int) (userCache *UserBase, err error) {
 		if shouldUpdateRedis(fromDB, err) && user != nil {
 			gopool.Go(func() {
 				if err := updateUserCache(*user); err != nil {
-					common.SysError("failed to update user status cache: " + err.Error())
+					common.SysLog("failed to update user status cache: " + err.Error())
 				}
 			})
 		}
@@ -173,11 +170,10 @@ func getUserNameCache(userId int) (string, error) {
 	return cache.Username, nil
 }
 
-func getUserSettingCache(userId int) (map[string]interface{}, error) {
-	setting := make(map[string]interface{})
+func getUserSettingCache(userId int) (dto.UserSetting, error) {
 	cache, err := GetUserCache(userId)
 	if err != nil {
-		return setting, err
+		return dto.UserSetting{}, err
 	}
 	return cache.GetSetting(), nil
 }
@@ -208,6 +204,10 @@ func updateUserGroupCache(userId int, group string) error {
 	return common.RedisHSetField(getUserCacheKey(userId), "Group", group)
 }
 
+func UpdateUserGroupCache(userId int, group string) error {
+	return updateUserGroupCache(userId, group)
+}
+
 func updateUserNameCache(userId int, username string) error {
 	if !common.RedisEnabled {
 		return nil
@@ -220,4 +220,14 @@ func updateUserSettingCache(userId int, setting string) error {
 		return nil
 	}
 	return common.RedisHSetField(getUserCacheKey(userId), "Setting", setting)
+}
+
+// GetUserLanguage returns the user's language preference from cache
+// Uses the existing GetUserCache mechanism for efficiency
+func GetUserLanguage(userId int) string {
+	userCache, err := GetUserCache(userId)
+	if err != nil {
+		return ""
+	}
+	return userCache.GetSetting().Language
 }

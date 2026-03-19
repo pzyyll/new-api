@@ -3,67 +3,54 @@ package controller
 import (
 	"errors"
 	"fmt"
+
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+
 	"github.com/gin-gonic/gin"
-	"net/http"
-	"one-api/common"
-	"one-api/constant"
-	"one-api/dto"
-	"one-api/middleware"
-	"one-api/model"
-	"one-api/service"
-	"one-api/setting"
-	"time"
 )
 
 func Playground(c *gin.Context) {
-	var openaiErr *dto.OpenAIErrorWithStatusCode
+	var newAPIError *types.NewAPIError
 
 	defer func() {
-		if openaiErr != nil {
-			c.JSON(openaiErr.StatusCode, gin.H{
-				"error": openaiErr.Error,
+		if newAPIError != nil {
+			c.JSON(newAPIError.StatusCode, gin.H{
+				"error": newAPIError.ToOpenAIError(),
 			})
 		}
 	}()
 
 	useAccessToken := c.GetBool("use_access_token")
 	if useAccessToken {
-		openaiErr = service.OpenAIErrorWrapperLocal(errors.New("暂不支持使用 access token"), "access_token_not_supported", http.StatusBadRequest)
+		newAPIError = types.NewError(errors.New("暂不支持使用 access token"), types.ErrorCodeAccessDenied, types.ErrOptionWithSkipRetry())
 		return
 	}
 
-	playgroundRequest := &dto.PlayGroundRequest{}
-	err := common.UnmarshalBodyReusable(c, playgroundRequest)
+	relayInfo, err := relaycommon.GenRelayInfo(c, types.RelayFormatOpenAI, nil, nil)
 	if err != nil {
-		openaiErr = service.OpenAIErrorWrapperLocal(err, "unmarshal_request_failed", http.StatusBadRequest)
+		newAPIError = types.NewError(err, types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 		return
 	}
 
-	if playgroundRequest.Model == "" {
-		openaiErr = service.OpenAIErrorWrapperLocal(errors.New("请选择模型"), "model_required", http.StatusBadRequest)
-		return
-	}
-	c.Set("original_model", playgroundRequest.Model)
-	group := playgroundRequest.Group
-	userGroup := c.GetString("group")
+	userId := c.GetInt("id")
 
-	if group == "" {
-		group = userGroup
-	} else {
-		if !setting.GroupInUserUsableGroups(group) && group != userGroup {
-			openaiErr = service.OpenAIErrorWrapperLocal(errors.New("无权访问该分组"), "group_not_allowed", http.StatusForbidden)
-			return
-		}
-		c.Set("group", group)
-	}
-	c.Set("token_name", "playground-"+group)
-	channel, err := model.CacheGetRandomSatisfiedChannel(group, playgroundRequest.Model, 0)
+	// Write user context to ensure acceptUnsetRatio is available
+	userCache, err := model.GetUserCache(userId)
 	if err != nil {
-		message := fmt.Sprintf("当前分组 %s 下对于模型 %s 无可用渠道", group, playgroundRequest.Model)
-		openaiErr = service.OpenAIErrorWrapperLocal(errors.New(message), "get_playground_channel_failed", http.StatusInternalServerError)
+		newAPIError = types.NewError(err, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 		return
 	}
-	middleware.SetupContextForSelectedChannel(c, channel, playgroundRequest.Model)
-	c.Set(constant.ContextKeyRequestStartTime, time.Now())
-	Relay(c)
+	userCache.WriteContext(c)
+
+	tempToken := &model.Token{
+		UserId: userId,
+		Name:   fmt.Sprintf("playground-%s", relayInfo.UsingGroup),
+		Group:  relayInfo.UsingGroup,
+	}
+	_ = middleware.SetupContextForToken(c, tempToken)
+
+	Relay(c, types.RelayFormatOpenAI)
 }

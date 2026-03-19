@@ -3,23 +3,24 @@ package claude
 import (
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"net/http"
-	"one-api/dto"
-	"one-api/relay/channel"
-	relaycommon "one-api/relay/common"
-	"one-api/setting/model_setting"
-	"strings"
-)
 
-const (
-	RequestModeCompletion = 1
-	RequestModeMessage    = 2
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/model_setting"
+	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
 )
 
 type Adaptor struct {
-	RequestMode int
+}
+
+func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
+	//TODO implement me
+	return nil, errors.New("not implemented")
 }
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
@@ -37,19 +38,23 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
-	if strings.HasPrefix(info.UpstreamModelName, "claude-3") {
-		a.RequestMode = RequestModeMessage
-	} else {
-		a.RequestMode = RequestModeCompletion
-	}
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	if a.RequestMode == RequestModeMessage {
-		return fmt.Sprintf("%s/v1/messages", info.BaseUrl), nil
-	} else {
-		return fmt.Sprintf("%s/v1/complete", info.BaseUrl), nil
+	baseURL := fmt.Sprintf("%s/v1/messages", info.ChannelBaseUrl)
+	if info.IsClaudeBetaQuery {
+		baseURL = baseURL + "?beta=true"
 	}
+	return baseURL, nil
+}
+
+func CommonClaudeHeadersOperation(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) {
+	// common headers operation
+	anthropicBeta := c.Request.Header.Get("anthropic-beta")
+	if anthropicBeta != "" {
+		req.Set("anthropic-beta", anthropicBeta)
+	}
+	model_setting.GetClaudeSettings().WriteHeaders(info.OriginModelName, req)
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
@@ -60,7 +65,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 		anthropicVersion = "2023-06-01"
 	}
 	req.Set("anthropic-version", anthropicVersion)
-	model_setting.GetClaudeSettings().WriteHeaders(info.OriginModelName, req)
+	CommonClaudeHeadersOperation(c, req, info)
 	return nil
 }
 
@@ -68,11 +73,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	if a.RequestMode == RequestModeCompletion {
-		return RequestOpenAI2ClaudeComplete(*request), nil
-	} else {
-		return RequestOpenAI2ClaudeMessage(*request)
-	}
+	return RequestOpenAI2ClaudeMessage(c, *request)
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
@@ -84,17 +85,22 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 	return nil, errors.New("not implemented")
 }
 
+func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
+	// TODO implement me
+	return nil, errors.New("not implemented")
+}
+
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
 
-func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *dto.OpenAIErrorWithStatusCode) {
+func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	info.FinalRequestRelayFormat = types.RelayFormatClaude
 	if info.IsStream {
-		err, usage = ClaudeStreamHandler(c, resp, info, a.RequestMode)
+		return ClaudeStreamHandler(c, resp, info)
 	} else {
-		err, usage = ClaudeHandler(c, resp, a.RequestMode, info)
+		return ClaudeHandler(c, resp, info)
 	}
-	return
 }
 
 func (a *Adaptor) GetModelList() []string {
