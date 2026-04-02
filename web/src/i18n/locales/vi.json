@@ -90,7 +90,7 @@
     "common.changeLanguage": "Thay đổi ngôn ngữ",
     "Completion tokens": "Completion tokens",
     "Configuration": "Cấu hình",
-    "context_int/context_string 从请求上下文读取；gjson 从入口请求的 JSON body 按 gjson path 读取。": "context_int/context_string đọc từ context yêu cầu; gjson đọc từ JSON body yêu cầu đầu vào theo gjson path.",
+    "context_int/context_string 从请求上下文读取；header 从 HTTP 请求头读取；gjson 从入口请求的 JSON body 按 gjson path 读取。": "context_int/context_string đọc từ context yêu cầu; header đọc từ HTTP request header; gjson đọc từ JSON body yêu cầu đầu vào theo gjson path.",
     "CPU 使用率超过此值时拒绝请求": "Từ chối yêu cầu khi sử dụng CPU vượt quá giá trị này",
     "CPU 阈值 (%)": "Ngưỡng CPU (%)",
     "Creem API 密钥，敏感信息不显示": "Khóa API Creem, thông tin nhạy cảm không được hiển thị",

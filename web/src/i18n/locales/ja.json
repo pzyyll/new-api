@@ -90,7 +90,7 @@
     "common.changeLanguage": "common.changeLanguage",
     "Completion tokens": "Completion tokens",
     "Configuration": "Configuration",
-    "context_int/context_string 从请求上下文读取；gjson 从入口请求的 JSON body 按 gjson path 读取。": "context_int/context_stringはリクエストコンテキストから読み取り、gjsonはエントリリクエストのJSON bodyからgjsonパスで読み取ります。",
+    "context_int/context_string 从请求上下文读取；header 从 HTTP 请求头读取；gjson 从入口请求的 JSON body 按 gjson path 读取。": "context_int/context_stringはリクエストコンテキストから読み取り、headerはHTTPリクエストヘッダーから読み取り、gjsonはエントリリクエストのJSON bodyからgjsonパスで読み取ります。",
     "CPU 使用率超过此值时拒绝请求": "CPU使用率がこの値を超えた場合にリクエストを拒否",
     "CPU 阈值 (%)": "CPUしきい値 (%)",
     "Creem API 密钥，敏感信息不显示": "Creem API key, sensitive information not displayed",
