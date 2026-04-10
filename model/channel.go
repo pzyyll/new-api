@@ -48,6 +48,7 @@ type Channel struct {
 	ParamOverride     *string `json:"param_override" gorm:"type:text"`
 	HeaderOverride    *string `json:"header_override" gorm:"type:text"`
 	Remark            *string `json:"remark" gorm:"type:varchar(255)" validate:"max=255"`
+	UserAgent         *string `json:"user_agent" gorm:"type:varchar(512);default:''"`
 	// add after v0.8.5
 	ChannelInfo ChannelInfo `json:"channel_info" gorm:"type:json"`
 
@@ -1005,4 +1006,88 @@ func CountChannelsGroupByType() (map[int64]int64, error) {
 		counts[r.Type] = r.Count
 	}
 	return counts, nil
+}
+
+// GetUserAgentPatterns returns the parsed list of User-Agent glob patterns.
+// Returns nil if the field is empty (accept all clients).
+func (channel *Channel) GetUserAgentPatterns() []string {
+	if channel.UserAgent == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*channel.UserAgent)
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, ",")
+	patterns := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			patterns = append(patterns, p)
+		}
+	}
+	if len(patterns) == 0 {
+		return nil
+	}
+	return patterns
+}
+
+// MatchUserAgent returns true if the client's User-Agent matches at least one
+// of the channel's configured User-Agent glob patterns. If no patterns are
+// configured, all clients are accepted.
+func (channel *Channel) MatchUserAgent(clientUA string) bool {
+	patterns := channel.GetUserAgentPatterns()
+	if patterns == nil {
+		return true
+	}
+	for _, pattern := range patterns {
+		if globMatch(pattern, clientUA) {
+			return true
+		}
+	}
+	return false
+}
+
+// globMatch performs a case-insensitive glob match.
+// Supported wildcards: * (matches any sequence of zero or more characters,
+// including /), ? (matches exactly one character).
+func globMatch(pattern, s string) bool {
+	pattern = strings.ToLower(pattern)
+	s = strings.ToLower(s)
+	return globMatchInner(pattern, s)
+}
+
+func globMatchInner(pattern, s string) bool {
+	for len(pattern) > 0 {
+		switch pattern[0] {
+		case '*':
+			// Skip consecutive stars
+			for len(pattern) > 0 && pattern[0] == '*' {
+				pattern = pattern[1:]
+			}
+			if len(pattern) == 0 {
+				return true // trailing * matches everything
+			}
+			// Try matching the rest of the pattern at every position
+			for i := 0; i <= len(s); i++ {
+				if globMatchInner(pattern, s[i:]) {
+					return true
+				}
+			}
+			return false
+		case '?':
+			if len(s) == 0 {
+				return false
+			}
+			pattern = pattern[1:]
+			s = s[1:]
+		default:
+			if len(s) == 0 || pattern[0] != s[0] {
+				return false
+			}
+			pattern = pattern[1:]
+			s = s[1:]
+		}
+	}
+	return len(s) == 0
 }
