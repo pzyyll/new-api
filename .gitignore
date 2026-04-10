@@ -37,3 +37,4 @@ data/
 .gomodcache/
 .gocache-temp
 .gopath
+.worktrees
