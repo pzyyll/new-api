@@ -196,6 +196,7 @@ const EditChannelModal = (props) => {
     system_prompt: '',
     system_prompt_override: false,
     settings: '',
+    user_agent: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
     // 仅 AWS: 密钥格式和区域（存入 settings.aws_key_type 和 settings.aws_region）
@@ -1007,6 +1008,7 @@ const EditChannelModal = (props) => {
         (data.header_override && data.header_override.trim()) ||
         (data.tag && data.tag.trim()) ||
         (data.remark && data.remark.trim()) ||
+        (data.user_agent && data.user_agent.trim()) ||
         (data.priority && data.priority !== 0) ||
         (data.weight && data.weight !== 0) ||
         (data.proxy && data.proxy.trim()) ||
@@ -2436,6 +2438,14 @@ const EditChannelModal = (props) => {
                     maxLength={255}
                     showClear
                     onChange={(value) => handleInputChange('remark', value)}
+                  />
+                  <Form.Input
+                    field='user_agent'
+                    label={t('User-Agent 过滤')}
+                    placeholder='codex*,claude-code*'
+                    showClear
+                    onChange={(value) => handleInputChange('user_agent', value)}
+                    extraText={t('逗号分隔的通配符模式。设置后，仅匹配的客户端 User-Agent 可使用此渠道。留空则允许所有客户端。')}
                   />
 
                   <Row gutter={12}>
