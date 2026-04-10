@@ -103,7 +103,7 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int) (*Channel, error) {
+func GetChannel(group string, model string, retry int, userAgent string) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -140,7 +140,13 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 		return nil, nil
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
-	return &channel, err
+	if err != nil {
+		return nil, err
+	}
+	if !channel.MatchUserAgent(userAgent) {
+		return nil, nil
+	}
+	return &channel, nil
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {
