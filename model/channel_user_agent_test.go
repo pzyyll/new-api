@@ -2,7 +2,12 @@
 // ABOUTME: Tests the MatchUserAgent method and the underlying globMatch function.
 package model
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/require"
+)
 
 func TestGlobMatch(t *testing.T) {
 	tests := []struct {
@@ -77,5 +82,49 @@ func TestChannelMatchUserAgent(t *testing.T) {
 				t.Errorf("MatchUserAgent(%q) = %v, want %v", tt.clientUA, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetChannel_DBFallbackSkipsHigherPriorityNonMatchingChannel(t *testing.T) {
+	require.NoError(t, DB.AutoMigrate(&Ability{}))
+	initCol()
+	truncateTables(t)
+
+	priorityHigh := int64(200)
+	priorityLow := int64(100)
+	weightHigh := uint(100)
+	weightLow := uint(1)
+	highUA := "other-client*"
+	lowUA := "my-client*"
+
+	high := &Channel{
+		Status:    common.ChannelStatusEnabled,
+		Name:      "high-priority-non-matching",
+		Key:       "high-key",
+		Models:    "gpt-4o",
+		Group:     "default",
+		Priority:  &priorityHigh,
+		Weight:    &weightHigh,
+		UserAgent: &highUA,
+	}
+	require.NoError(t, high.Insert())
+
+	low := &Channel{
+		Status:    common.ChannelStatusEnabled,
+		Name:      "low-priority-matching",
+		Key:       "low-key",
+		Models:    "gpt-4o",
+		Group:     "default",
+		Priority:  &priorityLow,
+		Weight:    &weightLow,
+		UserAgent: &lowUA,
+	}
+	require.NoError(t, low.Insert())
+
+	channel, err := GetChannel("default", "gpt-4o", 0, "my-client/1.0")
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	if channel.Id != low.Id {
+		t.Fatalf("GetChannel returned channel %d, want matching lower-priority channel %d", channel.Id, low.Id)
 	}
 }

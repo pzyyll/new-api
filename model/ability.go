@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -21,6 +22,13 @@ type Ability struct {
 	Priority  *int64  `json:"priority" gorm:"bigint;default:0;index"`
 	Weight    uint    `json:"weight" gorm:"default:0;index"`
 	Tag       *string `json:"tag" gorm:"index"`
+}
+
+func (ability Ability) PriorityValue() int64 {
+	if ability.Priority == nil {
+		return 0
+	}
+	return *ability.Priority
 }
 
 type AbilityWithChannel struct {
@@ -105,48 +113,89 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 
 func GetChannel(group string, model string, retry int, userAgent string) (*Channel, error) {
 	var abilities []Ability
+	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Order("priority DESC, weight DESC").
+		Find(&abilities).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(abilities) == 0 {
+		return nil, nil
+	}
 
-	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
-	if err != nil {
+	channelIDs := make([]int, 0, len(abilities))
+	for _, ability := range abilities {
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+	var channels []Channel
+	if err := DB.Where("id in (?)", channelIDs).Find(&channels).Error; err != nil {
 		return nil, err
 	}
-	if common.UsingSQLite || common.UsingPostgreSQL {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
-	} else {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
+	channelByID := make(map[int]*Channel, len(channels))
+	for i := range channels {
+		channel := channels[i]
+		channelByID[channel.Id] = &channel
 	}
-	if err != nil {
-		return nil, err
+
+	matchedAbilities := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		channel, ok := channelByID[ability.ChannelId]
+		if !ok {
+			return nil, fmt.Errorf("channel %d not found", ability.ChannelId)
+		}
+		if channel.MatchUserAgent(userAgent) {
+			matchedAbilities = append(matchedAbilities, ability)
+		}
 	}
-	channel := Channel{}
-	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
-		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
-				break
-			}
-		}
-	} else {
+	if len(matchedAbilities) == 0 {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
-	if err != nil {
-		return nil, err
+
+	priorities := make([]int64, 0, len(matchedAbilities))
+	seenPriorities := make(map[int64]struct{}, len(matchedAbilities))
+	for _, ability := range matchedAbilities {
+		priority := ability.PriorityValue()
+		if _, ok := seenPriorities[priority]; ok {
+			continue
+		}
+		seenPriorities[priority] = struct{}{}
+		priorities = append(priorities, priority)
 	}
-	if !channel.MatchUserAgent(userAgent) {
-		return nil, nil
+	sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
 	}
-	return &channel, nil
+	targetPriority := priorities[retry]
+
+	targetAbilities := make([]Ability, 0, len(matchedAbilities))
+	var weightSum uint
+	for _, ability := range matchedAbilities {
+		if ability.PriorityValue() == targetPriority {
+			targetAbilities = append(targetAbilities, ability)
+			weightSum += ability.Weight + 10
+		}
+	}
+	if len(targetAbilities) == 0 {
+		return nil, errors.New("no channel found")
+	}
+
+	weight := common.GetRandomInt(int(weightSum))
+	selectedChannelID := 0
+	for _, ability := range targetAbilities {
+		weight -= int(ability.Weight) + 10
+		if weight <= 0 {
+			selectedChannelID = ability.ChannelId
+			break
+		}
+	}
+	if selectedChannelID == 0 {
+		return nil, errors.New("channel not found")
+	}
+	channel, ok := channelByID[selectedChannelID]
+	if !ok {
+		return nil, fmt.Errorf("channel %d not found", selectedChannelID)
+	}
+	return channel, nil
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {
