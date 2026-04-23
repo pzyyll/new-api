@@ -39,4 +39,6 @@ data/
 .gopath
 .worktrees
 
+.test
 token_estimator_test.go
+skills-lock.json
