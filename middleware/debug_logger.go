@@ -13,10 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const maxDebugBodyLogBytes = 10 * 1024 // 10KB
+const maxDebugBodyLogBytes = 1000 * 1024 // 1MB
 
 // DebugRequestLog logs the raw HTTP request method, URL, headers, and body
-// when DEBUG mode is enabled. The body is truncated to 10KB to avoid flooding logs.
+// when DEBUG mode is enabled. The body is truncated to 1MB to avoid flooding logs.
 func DebugRequestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !common.DebugEnabled {
@@ -46,7 +46,7 @@ func DebugRequestLog() gin.HandlerFunc {
 					if len(bodyStr) > maxDebugBodyLogBytes {
 						bodyStr = bodyStr[:maxDebugBodyLogBytes] + fmt.Sprintf("... [truncated, total %d bytes]", len(bodyBytes))
 					}
-					logger.LogDebug(ctx, ">>> Body (%d bytes):\n%s", len(bodyBytes), bodyStr)
+					logger.LogDebug(ctx, ">>> Body (%d bytes): %s", len(bodyBytes), bodyStr)
 				}
 				// Reset body position for downstream handlers
 				if _, seekErr := storage.Seek(0, io.SeekStart); seekErr != nil {
