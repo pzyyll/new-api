@@ -29,6 +29,7 @@ export const channelFormSchema = z.object({
   setting: z.string().optional(),
   param_override: z.string().optional(),
   header_override: z.string().optional(),
+  user_agent: z.string().optional(),
   settings: z.string().optional(),
   other: z.string().optional(),
   // Multi-key options (not sent to backend directly)
@@ -88,6 +89,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   setting: '',
   param_override: '',
   header_override: '',
+  user_agent: '',
   settings: '{}',
   other: '',
   multi_key_mode: 'single',
@@ -221,6 +223,7 @@ export function transformChannelToFormDefaults(
     setting: channel.setting || '',
     param_override: channel.param_override || '',
     header_override: channel.header_override || '',
+    user_agent: channel.user_agent || '',
     settings: channel.settings || '{}',
     other: channel.other || '',
     multi_key_mode: 'single',
@@ -404,6 +407,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    user_agent: formData.user_agent || null,
   }
 
   // Clean up empty strings to null for optional fields
@@ -452,6 +456,7 @@ export function transformFormDataToUpdatePayload(
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    user_agent: formData.user_agent || null,
   }
 
   // Only include key if it was changed (not empty)

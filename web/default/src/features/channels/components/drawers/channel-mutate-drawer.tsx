@@ -212,6 +212,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.status_code_mapping?.trim() ||
     values.tag?.trim() ||
     values.remark?.trim() ||
+    values.user_agent?.trim() ||
     values.priority ||
     values.weight ||
     values.proxy?.trim() ||
@@ -2514,31 +2515,55 @@ export function ChannelMutateDrawer({
                                 {t(FIELD_DESCRIPTIONS.TAG)}
                               </FormDescription>
                               <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                        </FormItem>
+                      )}
+                    />
 
-                        <FormField
-                          control={form.control}
-                          name='remark'
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('Remark')}</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  placeholder={t(FIELD_PLACEHOLDERS.REMARK)}
-                                  rows={2}
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                {t(FIELD_DESCRIPTIONS.REMARK)}
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                    <FormField
+                      control={form.control}
+                      name='remark'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Remark')}</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              placeholder={t(FIELD_PLACEHOLDERS.REMARK)}
+                              rows={2}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(FIELD_DESCRIPTIONS.REMARK)}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name='user_agent'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('User-Agent 过滤')}
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={t('codex*,claude-code*')}
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              '逗号分隔的通配符模式。设置后，仅匹配的客户端 User-Agent 可使用此渠道。留空则允许所有客户端。'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                     </div>
 
                     <div className='space-y-4 border-t pt-4'>

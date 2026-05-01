@@ -330,6 +330,7 @@ export const FIELD_PLACEHOLDERS = {
   PARAM_OVERRIDE: '{"temperature": 0.7}',
   HEADER_OVERRIDE: '{"X-Custom-Header": "value"}',
   STATUS_CODE_MAPPING: '{"400": "500"}',
+  USER_AGENT: 'codex*,claude-code*',
 } as const
 
 export const FIELD_DESCRIPTIONS = {

@@ -661,6 +661,7 @@
     "Codex Authorization": "Ủy quyền Codex",
     "Codex channels use an OAuth JSON credential as the key.": "Kênh Codex dùng thông tin xác thực OAuth JSON làm khóa.",
     "Codex CLI Header Passthrough": "Chuyển tiếp header Codex CLI",
+    "codex*,claude-code*": "codex*,claude-code*",
     "Cohere": "Cohere",
     "Collapse": "Thu gọn",
     "Collapse All": "Thu gọn tất cả",
@@ -3725,6 +3726,7 @@
     "User updated successfully": "Cập nhật người dùng thành công",
     "User Verification": "Xác minh người dùng",
     "User-Agent include (one per line)": "User-Agent include (mỗi dòng một mục)",
+    "User-Agent 过滤": "Bộ lọc User-Agent",
     "Username": "Tên người dùng",
     "Username confirmation does not match": "Xác nhận tên người dùng không khớp",
     "Username Field": "Trường Tên người dùng",
@@ -3909,6 +3911,7 @@
     "Your Turnstile site key": "Khóa site Turnstile của bạn",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "逗号分隔的通配符模式。设置后，仅匹配的客户端 User-Agent 可使用此渠道。留空则允许所有客户端。": "Mẫu glob phân cách bằng dấu phẩy. Nếu được đặt, chỉ những máy khách có User-Agent khớp mới có thể sử dụng kênh này. Để trống để chấp nhận tất cả máy khách."
   }
 }

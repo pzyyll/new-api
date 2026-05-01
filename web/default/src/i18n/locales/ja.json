@@ -661,6 +661,7 @@
     "Codex Authorization": "Codex認証",
     "Codex channels use an OAuth JSON credential as the key.": "CodexチャンネルはOAuth JSON認証情報をキーとして使用します。",
     "Codex CLI Header Passthrough": "Codex CLI ヘッダーパススルー",
+    "codex*,claude-code*": "codex*,claude-code*",
     "Cohere": "Cohere",
     "Collapse": "折りたたむ",
     "Collapse All": "すべて折りたたむ",
@@ -3725,6 +3726,7 @@
     "User updated successfully": "ユーザーの更新に成功しました",
     "User Verification": "ユーザー認証",
     "User-Agent include (one per line)": "User-Agent include（1行に1つ）",
+    "User-Agent 过滤": "User-Agent フィルター",
     "Username": "ユーザー名",
     "Username confirmation does not match": "ユーザー名の確認が一致しません",
     "Username Field": "ユーザー名フィールド",
@@ -3909,6 +3911,7 @@
     "Your Turnstile site key": "あなたのTurnstileサイトキー",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "逗号分隔的通配符模式。设置后，仅匹配的客户端 User-Agent 可使用此渠道。留空则允许所有客户端。": "カンマ区切りのグロブパターン。設定すると、一致するクライアント User-Agent のみがこのチャンネルを使用できます。空の場合はすべてのクライアントを許可します。"
   }
 }

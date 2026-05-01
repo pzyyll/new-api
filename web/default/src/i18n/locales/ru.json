@@ -661,6 +661,7 @@
     "Codex Authorization": "Авторизация Codex",
     "Codex channels use an OAuth JSON credential as the key.": "Каналы Codex используют учётные данные OAuth в формате JSON в качестве ключа.",
     "Codex CLI Header Passthrough": "Проброс заголовков Codex CLI",
+    "codex*,claude-code*": "codex*,claude-code*",
     "Cohere": "Cohere",
     "Collapse": "Свернуть",
     "Collapse All": "Свернуть все",
@@ -3725,6 +3726,7 @@
     "User updated successfully": "Пользователь успешно обновлен",
     "User Verification": "Проверка пользователя",
     "User-Agent include (one per line)": "User-Agent include (по одному на строку)",
+    "User-Agent 过滤": "Фильтр User-Agent",
     "Username": "Имя пользователя",
     "Username confirmation does not match": "Подтверждение имени пользователя не совпадает",
     "Username Field": "Поле имени пользователя",
@@ -3909,6 +3911,7 @@
     "Your Turnstile site key": "Ключ сайта Turnstile",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "逗号分隔的通配符模式。设置后，仅匹配的客户端 User-Agent 可使用此渠道。留空则允许所有客户端。": "Шаблоны glob через запятую. Если задано, только клиенты с подходящим User-Agent могут использовать этот канал. Оставьте пустым, чтобы разрешить всем клиентам."
   }
 }

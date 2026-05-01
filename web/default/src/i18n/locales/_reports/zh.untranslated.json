@@ -17,6 +17,7 @@
   "Client ID": "Client ID",
   "Client Secret": "Client Secret",
   "Cloudflare": "Cloudflare",
+  "codex*,claude-code*": "codex*,claude-code*",
   "Cohere": "Cohere",
   "DeepSeek": "DeepSeek",
   "Discord": "Discord",

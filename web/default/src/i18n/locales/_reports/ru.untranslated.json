@@ -15,6 +15,7 @@
   "checkout.session.completed": "checkout.session.completed",
   "checkout.session.expired": "checkout.session.expired",
   "Cloudflare": "Cloudflare",
+  "codex*,claude-code*": "codex*,claude-code*",
   "Cohere": "Cohere",
   "DeepSeek": "DeepSeek",
   "Discord": "Discord",
