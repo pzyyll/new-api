@@ -3,7 +3,7 @@ name: Publish Docker image (Multi-arch)
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
       - '!nightly*'
   workflow_dispatch:
     inputs:
