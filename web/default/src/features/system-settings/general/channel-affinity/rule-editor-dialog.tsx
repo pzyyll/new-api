@@ -31,7 +31,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { RULE_TEMPLATES } from './constants'
 import type { AffinityRule, KeySource } from './types'
 
-const KEY_SOURCE_TYPES = ['context_int', 'context_string', 'gjson'] as const
+const KEY_SOURCE_TYPES = ['context_int', 'context_string', 'gjson', 'header'] as const
 
 const CONTEXT_KEY_PRESETS = [
   'id',
