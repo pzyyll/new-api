@@ -59,6 +59,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -1377,6 +1378,13 @@ export function ChannelMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('AWS Key Format')}</FormLabel>
                         <Select
+                          items={[
+                            {
+                              value: 'ak_sk',
+                              label: t('AccessKey / SecretAccessKey'),
+                            },
+                            { value: 'api_key', label: t('API Key') },
+                          ]}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -1387,13 +1395,15 @@ export function ChannelMutateDrawer({
                               />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value='ak_sk'>
-                              {t('AccessKey / SecretAccessKey')}
-                            </SelectItem>
-                            <SelectItem value='api_key'>
-                              {t('API Key')}
-                            </SelectItem>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='ak_sk'>
+                                {t('AccessKey / SecretAccessKey')}
+                              </SelectItem>
+                              <SelectItem value='api_key'>
+                                {t('API Key')}
+                              </SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -1535,6 +1545,10 @@ export function ChannelMutateDrawer({
                         <FormItem>
                           <FormLabel>{t('Vertex AI Key Format')}</FormLabel>
                           <Select
+                            items={[
+                              { value: 'json', label: t('JSON') },
+                              { value: 'api_key', label: t('API Key') },
+                            ]}
                             onValueChange={field.onChange}
                             value={field.value}
                           >
@@ -1543,11 +1557,15 @@ export function ChannelMutateDrawer({
                                 <SelectValue />
                               </SelectTrigger>
                             </FormControl>
-                            <SelectContent>
-                              <SelectItem value='json'>{t('JSON')}</SelectItem>
-                              <SelectItem value='api_key'>
-                                {t('API Key')}
-                              </SelectItem>
+                            <SelectContent alignItemWithTrigger={false}>
+                              <SelectGroup>
+                                <SelectItem value='json'>
+                                  {t('JSON')}
+                                </SelectItem>
+                                <SelectItem value='api_key'>
+                                  {t('API Key')}
+                                </SelectItem>
+                              </SelectGroup>
                             </SelectContent>
                           </Select>
                           <FormDescription>
@@ -1673,6 +1691,22 @@ export function ChannelMutateDrawer({
                           {t('API Base URL *')}
                         </FormLabel>
                         <Select
+                          items={[
+                            {
+                              value: 'https://ark.cn-beijing.volces.com',
+                              label: t('https://ark.cn-beijing.volces.com'),
+                            },
+                            {
+                              value: 'https://ark.ap-southeast.bytepluses.com',
+                              label: t(
+                                'https://ark.ap-southeast.bytepluses.com'
+                              ),
+                            },
+                            {
+                              value: 'doubao-coding-plan',
+                              label: t('Doubao Coding Plan'),
+                            },
+                          ]}
                           onValueChange={field.onChange}
                           value={
                             field.value || 'https://ark.cn-beijing.volces.com'
@@ -1683,16 +1717,18 @@ export function ChannelMutateDrawer({
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value='https://ark.cn-beijing.volces.com'>
-                              {t('https://ark.cn-beijing.volces.com')}
-                            </SelectItem>
-                            <SelectItem value='https://ark.ap-southeast.bytepluses.com'>
-                              {t('https://ark.ap-southeast.bytepluses.com')}
-                            </SelectItem>
-                            <SelectItem value='doubao-coding-plan'>
-                              {t('Doubao Coding Plan')}
-                            </SelectItem>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='https://ark.cn-beijing.volces.com'>
+                                {t('https://ark.cn-beijing.volces.com')}
+                              </SelectItem>
+                              <SelectItem value='https://ark.ap-southeast.bytepluses.com'>
+                                {t('https://ark.ap-southeast.bytepluses.com')}
+                              </SelectItem>
+                              <SelectItem value='doubao-coding-plan'>
+                                {t('Doubao Coding Plan')}
+                              </SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -1791,6 +1827,12 @@ export function ChannelMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Add Mode')}</FormLabel>
                         <Select
+                          items={[
+                            ...ADD_MODE_OPTIONS.map((option) => ({
+                              value: option.value,
+                              label: t(option.label),
+                            })),
+                          ]}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -1799,15 +1841,17 @@ export function ChannelMutateDrawer({
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            {ADD_MODE_OPTIONS.map((option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {t(option.label)}
-                              </SelectItem>
-                            ))}
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              {ADD_MODE_OPTIONS.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {t(option.label)}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -2028,6 +2072,16 @@ export function ChannelMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Key Update Mode')}</FormLabel>
                         <Select
+                          items={[
+                            {
+                              value: 'append',
+                              label: t('Append to existing keys'),
+                            },
+                            {
+                              value: 'replace',
+                              label: t('Replace all existing keys'),
+                            },
+                          ]}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -2036,13 +2090,15 @@ export function ChannelMutateDrawer({
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value='append'>
-                              {t('Append to existing keys')}
-                            </SelectItem>
-                            <SelectItem value='replace'>
-                              {t('Replace all existing keys')}
-                            </SelectItem>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='append'>
+                                {t('Append to existing keys')}
+                              </SelectItem>
+                              <SelectItem value='replace'>
+                                {t('Replace all existing keys')}
+                              </SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -2068,6 +2124,10 @@ export function ChannelMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Multi-Key Strategy')}</FormLabel>
                         <Select
+                          items={[
+                            { value: 'random', label: t('Random') },
+                            { value: 'polling', label: t('Polling') },
+                          ]}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -2076,13 +2136,15 @@ export function ChannelMutateDrawer({
                               <SelectValue />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value='random'>
-                              {t('Random')}
-                            </SelectItem>
-                            <SelectItem value='polling'>
-                              {t('Polling')}
-                            </SelectItem>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='random'>
+                                {t('Random')}
+                              </SelectItem>
+                              <SelectItem value='polling'>
+                                {t('Polling')}
+                              </SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -2248,16 +2310,18 @@ export function ChannelMutateDrawer({
                           {t('Model Mapping')}
                         </FormLabel>
                         <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type='button'
-                              variant='ghost'
-                              size='icon-sm'
-                              className='text-muted-foreground hover:text-foreground size-auto p-0'
-                              aria-label='How model mapping works'
-                            >
-                              <HelpCircle className='h-4 w-4' />
-                            </Button>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                type='button'
+                                variant='ghost'
+                                size='icon-sm'
+                                className='text-muted-foreground hover:text-foreground size-auto p-0'
+                                aria-label='How model mapping works'
+                              />
+                            }
+                          >
+                            <HelpCircle className='h-4 w-4' />
                           </TooltipTrigger>
                           <TooltipContent
                             side='top'
@@ -2363,28 +2427,30 @@ export function ChannelMutateDrawer({
                 open={advancedSettingsOpen}
                 onOpenChange={handleAdvancedSettingsOpenChange}
               >
-                <CollapsibleTrigger asChild>
-                  <button
-                    type='button'
-                    className='bg-card hover:bg-accent/50 flex w-full items-center justify-between rounded-xl border px-5 py-4 text-left transition-colors'
-                  >
-                    <div className='space-y-0.5'>
-                      <div className='text-[13px] font-semibold'>
-                        {t('Advanced Settings')}
-                      </div>
-                      <div className='text-muted-foreground text-xs'>
-                        {t(
-                          'Request overrides, routing behavior, and upstream model automation'
-                        )}
-                      </div>
-                    </div>
-                    <ChevronDown
-                      className={cn(
-                        'text-muted-foreground h-4 w-4 shrink-0 transition-transform',
-                        advancedSettingsOpen && 'rotate-180'
-                      )}
+                <CollapsibleTrigger
+                  render={
+                    <button
+                      type='button'
+                      className='bg-card hover:bg-accent/50 flex w-full items-center justify-between rounded-xl border px-5 py-4 text-left transition-colors'
                     />
-                  </button>
+                  }
+                >
+                  <div className='space-y-0.5'>
+                    <div className='text-[13px] font-semibold'>
+                      {t('Advanced Settings')}
+                    </div>
+                    <div className='text-muted-foreground text-xs'>
+                      {t(
+                        'Request overrides, routing behavior, and upstream model automation'
+                      )}
+                    </div>
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      'text-muted-foreground h-4 w-4 shrink-0 transition-transform',
+                      advancedSettingsOpen && 'rotate-180'
+                    )}
+                  />
                 </CollapsibleTrigger>
 
                 <CollapsibleContent className='mt-5 space-y-5'>
@@ -3302,10 +3368,10 @@ export function ChannelMutateDrawer({
           </Form>
 
           <SheetFooter className='grid grid-cols-2 gap-2 border-t px-4 py-3 sm:flex sm:px-6 sm:py-4'>
-            <SheetClose asChild>
-              <Button variant='outline' disabled={isSubmitting}>
-                {t('Cancel')}
-              </Button>
+            <SheetClose
+              render={<Button variant='outline' disabled={isSubmitting} />}
+            >
+              {t('Cancel')}
             </SheetClose>
             <Button form='channel-form' type='submit' disabled={isSubmitting}>
               {isSubmitting && (
