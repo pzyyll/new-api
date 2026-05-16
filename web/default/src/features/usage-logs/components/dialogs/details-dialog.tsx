@@ -16,6 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useMemo } from 'react'
+import JsonView from '@uiw/react-json-view'
+import { githubDarkTheme } from '@uiw/react-json-view/githubDark'
+import { githubLightTheme } from '@uiw/react-json-view/githubLight'
 import {
   Copy,
   Check,
@@ -29,8 +33,10 @@ import {
   ShieldCheck,
   UserCog,
   Info,
+  Braces,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useTheme } from '@/context/theme-provider'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -387,6 +393,73 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
       {rows.map((row, idx) => (
         <DetailRow key={idx} label={row.label} value={row.value} mono />
       ))}
+    </DetailSection>
+  )
+}
+
+function RequestBodyView(props: { raw: string }) {
+  const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
+  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const parsed = useMemo(() => {
+    try {
+      return JSON.parse(props.raw) as unknown
+    } catch {
+      return null
+    }
+  }, [props.raw])
+
+  const theme = resolvedTheme === 'dark' ? githubDarkTheme : githubLightTheme
+  const isCopied = copiedText === props.raw
+
+  return (
+    <DetailSection
+      icon={<Braces className='size-3.5' aria-hidden='true' />}
+      label={t('Request JSON Body')}
+    >
+      <div className='relative min-w-0'>
+        <Button
+          variant='ghost'
+          size='sm'
+          className='absolute top-0 right-0 z-10 h-5 w-5 p-0'
+          onClick={() => copyToClipboard(props.raw)}
+          title={t('Copy to clipboard')}
+          aria-label={t('Copy to clipboard')}
+        >
+          {isCopied ? (
+            <Check className='size-3 text-green-600' />
+          ) : (
+            <Copy className='size-3' />
+          )}
+        </Button>
+        {parsed !== null && typeof parsed === 'object' ? (
+          <div className='bg-background/60 max-h-72 overflow-auto rounded border p-2 pr-6 text-[11px]'>
+            <JsonView
+              value={parsed as object}
+              style={{
+                ...theme,
+                backgroundColor: 'transparent',
+                fontSize: '11px',
+              }}
+              collapsed={2}
+              displayDataTypes={false}
+              displayObjectSize={true}
+              enableClipboard={false}
+            />
+          </div>
+        ) : (
+          <div className='space-y-1.5'>
+            {parsed === null && (
+              <p className='text-muted-foreground text-[11px]'>
+                {t('Invalid JSON; showing raw request body.')}
+              </p>
+            )}
+            <pre className='bg-background/60 max-h-72 overflow-auto rounded border p-2 pr-6 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap'>
+              {props.raw}
+            </pre>
+          </div>
+        )}
+      </div>
     </DetailSection>
   )
 }
@@ -1016,6 +1089,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
                   })}
                 </DetailSection>
               )}
+
+            {/* Request body (JSON) */}
+            {props.log.request_body && (
+              <RequestBodyView raw={props.log.request_body} />
+            )}
 
             {/* Content */}
             {details && (

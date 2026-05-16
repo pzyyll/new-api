@@ -29,6 +29,7 @@
     "@tanstack/react-router": "^1.168.23",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.18",
+    "@uiw/react-json-view": "^2.0.0-alpha.42",
     "@visactor/react-vchart": "^2.0.13",
     "@visactor/vchart": "^2.0.13",
     "ai": "^6.0.27",
