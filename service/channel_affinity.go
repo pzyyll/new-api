@@ -302,7 +302,7 @@ func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAf
 			return ""
 		}
 		return strings.TrimSpace(c.GetString(src.Key))
-	case "header":
+	case "request_header":
 		if src.Key == "" {
 			return ""
 		}
