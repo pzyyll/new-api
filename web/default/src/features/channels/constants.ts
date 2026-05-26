@@ -131,22 +131,18 @@ export const CHANNEL_STATUS_CONFIG = {
   [CHANNEL_STATUS.UNKNOWN]: {
     variant: 'neutral' as const,
     label: 'Unknown',
-    showDot: true,
   },
   [CHANNEL_STATUS.ENABLED]: {
     variant: 'success' as const,
     label: 'Enabled',
-    showDot: true,
   },
   [CHANNEL_STATUS.MANUAL_DISABLED]: {
-    variant: 'neutral' as const,
+    variant: 'danger' as const,
     label: 'Disabled',
-    showDot: true,
   },
   [CHANNEL_STATUS.AUTO_DISABLED]: {
-    variant: 'danger' as const,
+    variant: 'warning' as const,
     label: 'Auto Disabled',
-    showDot: true,
   },
 }
 
@@ -371,6 +367,8 @@ export const FIELD_DESCRIPTIONS = {
   SETTING: 'Channel-specific settings (JSON format)',
   PARAM_OVERRIDE: 'Override request parameters (JSON format)',
   HEADER_OVERRIDE: 'Override request headers (JSON format)',
+  USER_AGENT:
+    'Comma-separated wildcard patterns. When set, only matching client User-Agents can use this channel.',
   MULTI_KEY_MODE: 'How to select keys: random or sequential polling',
   BATCH_ADD: 'Create multiple channels from multiple keys',
   OPENAI_ORG: 'OpenAI Organization ID (optional)',
