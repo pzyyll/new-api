@@ -3,9 +3,6 @@
 package middleware
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/gin-gonic/gin"
@@ -14,14 +11,8 @@ import (
 func DebugHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if common.DebugEnabled {
-			var sb strings.Builder
-			fmt.Fprintf(&sb, "request headers for %s %s:", c.Request.Method, c.Request.URL.String())
-			for name, values := range c.Request.Header {
-				for _, value := range values {
-					fmt.Fprintf(&sb, "\n  %s: %s", name, value)
-				}
-			}
-			logger.LogDebug(c, sb.String())
+			headers, _ := common.Marshal(c.Request.Header)
+			logger.LogDebug(c, "request headers for %s %s: %s", c.Request.Method, c.Request.URL.String(), headers)
 		}
 		c.Next()
 	}
