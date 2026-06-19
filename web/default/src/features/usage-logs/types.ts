@@ -131,7 +131,6 @@ export interface LogOtherData {
   login_method?: string
   user_agent?: string
   request_path?: string
-  user_agent?: string
   request_conversion?: string[]
   ws?: boolean
   audio?: boolean
@@ -222,7 +221,7 @@ export interface LogStatistics {
 }
 
 // ============================================================================
-// Drawing Logs (Midjourney) Types
+// Drawing Logs (MjProxy) Types
 // ============================================================================
 
 export interface MidjourneyLog {

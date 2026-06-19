@@ -121,7 +121,7 @@ func TestGetChannel_DBFallbackSkipsHigherPriorityNonMatchingChannel(t *testing.T
 	}
 	require.NoError(t, low.Insert())
 
-	channel, err := GetChannel("default", "gpt-4o", 0, "my-client/1.0")
+	channel, err := GetChannel("default", "gpt-4o", 0, "my-client/1.0", "")
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 	if channel.Id != low.Id {
