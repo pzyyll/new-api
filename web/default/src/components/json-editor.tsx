@@ -16,13 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect } from 'react'
 import { Code, Table, Plus, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 
 type JsonEditorProps = {
   value: string
@@ -45,17 +46,17 @@ type EditorRow = {
 
 function parseJsonRows(json: string): EditorRow[] | null {
   try {
-    if (!json.trim()) {
+    if (!json.trim()) return []
+    const parsed = JSON.parse(json)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return []
     }
-
-    const parsed = JSON.parse(json)
     return Object.entries(parsed).map(([key, val], index) => ({
       id: `${Date.now()}-${index}`,
       key,
       value: typeof val === 'object' ? JSON.stringify(val) : String(val),
     }))
-  } catch (_error) {
+  } catch {
     return null
   }
 }
@@ -80,7 +81,9 @@ export function JsonEditor({
   const resolvedKeyLabel = keyLabel ?? t('Key')
   const resolvedValueLabel = valueLabel ?? t('Value')
   const [mode, setMode] = useState<'visual' | 'json'>('visual')
-  const [rows, setRows] = useState<EditorRow[]>(() => parseJsonRows(value) ?? [])
+  const [rows, setRows] = useState<EditorRow[]>(
+    () => parseJsonRows(value) ?? []
+  )
   const [jsonValue, setJsonValue] = useState(value)
 
   const parseJsonToRows = (json: string) => {
@@ -232,7 +235,7 @@ export function JsonEditor({
               <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
                 <div>{resolvedKeyLabel}</div>
                 <div>{resolvedValueLabel}</div>
-                <div className='w-10'></div>
+                <div className='w-10' />
               </div>
               {rows.map((row) => (
                 <div
