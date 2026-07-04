@@ -12,11 +12,7 @@ const semiUiDir = path.resolve(
   path.dirname(require.resolve('@douyinfe/semi-ui')),
   '../..',
 );
-const semiFoundationDir = path.resolve(
-  path.dirname(require.resolve('@douyinfe/semi-foundation')),
-  '../../..',
-);
-const semiDateFnsDir = path.resolve(semiFoundationDir, 'node_modules/date-fns');
+const dateFnsDir = path.dirname(require.resolve('date-fns/package.json'));
 
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] });
@@ -51,7 +47,7 @@ export default defineConfig(({ envMode }) => {
           semiUiDir,
           'dist/css/semi.css',
         ),
-        'date-fns': semiDateFnsDir,
+        'date-fns': dateFnsDir,
       },
     },
     html: {
