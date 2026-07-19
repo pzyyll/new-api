@@ -79,7 +79,7 @@ type Log struct {
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string `json:"other"`
 	RequestBody       string `json:"request_body,omitempty" gorm:"type:text"`
-	ResponseBody      string `json:"response_body,omitempty" gorm:"type:longtext"`
+	ResponseBody      string `json:"response_body,omitempty" gorm:"type:text"`
 }
 
 // don't use iota, avoid change log type value
