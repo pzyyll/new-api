@@ -79,6 +79,7 @@ type Log struct {
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string `json:"other"`
 	RequestBody       string `json:"request_body,omitempty" gorm:"type:text"`
+	ResponseBody      string `json:"response_body,omitempty" gorm:"type:longtext"`
 }
 
 // don't use iota, avoid change log type value
@@ -281,7 +282,7 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 }
 
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
-	isStream bool, group string, other map[string]interface{}, requestBody string) {
+	isStream bool, group string, other map[string]interface{}, requestBody string, responseBody string) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
@@ -320,6 +321,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
 		RequestBody:       requestBody,
+		ResponseBody:      responseBody,
 	}
 	err := createLog(log)
 	if err != nil {
@@ -341,6 +343,7 @@ type RecordConsumeLogParams struct {
 	Group            string                 `json:"group"`
 	Other            map[string]interface{} `json:"other"`
 	RequestBody      string                 `json:"request_body,omitempty"`
+	ResponseBody     string                 `json:"response_body,omitempty"`
 }
 
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
@@ -386,6 +389,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
 		RequestBody:       params.RequestBody,
+		ResponseBody:      params.ResponseBody,
 	}
 	err := createLog(log)
 	if err != nil {

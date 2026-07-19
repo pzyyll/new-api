@@ -468,25 +468,35 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   );
 }
 
-function RequestBodyView(props: { raw: string }) {
+function JsonOrRawBodyView(props: {
+  raw: string;
+  label: string;
+  /** When true, always show plain text (e.g. stream NDJSON chunks). */
+  preferRaw?: boolean;
+  invalidHint: string;
+}) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false });
   const parsed = useMemo(() => {
+    if (props.preferRaw) {
+      return null;
+    }
     try {
       return JSON.parse(props.raw) as unknown;
     } catch {
       return null;
     }
-  }, [props.raw]);
+  }, [props.raw, props.preferRaw]);
 
   const theme = resolvedTheme === "dark" ? githubDarkTheme : githubLightTheme;
   const isCopied = copiedText === props.raw;
+  const showJsonViewer = parsed !== null && typeof parsed === "object";
 
   return (
     <DetailSection
       icon={<Braces className="size-3.5" aria-hidden="true" />}
-      label={t("Request JSON Body")}
+      label={props.label}
     >
       <div className="relative min-w-0">
         <Button
@@ -503,7 +513,7 @@ function RequestBodyView(props: { raw: string }) {
             <Copy className="size-3" />
           )}
         </Button>
-        {parsed !== null && typeof parsed === "object" ? (
+        {showJsonViewer ? (
           <div className="bg-background/60 max-h-72 overflow-auto rounded border p-2 pr-6 text-[11px]">
             <JsonView
               value={parsed as object}
@@ -520,9 +530,9 @@ function RequestBodyView(props: { raw: string }) {
           </div>
         ) : (
           <div className="space-y-1.5">
-            {parsed === null && (
+            {!props.preferRaw && parsed === null && (
               <p className="text-muted-foreground text-[11px]">
-                {t("Invalid JSON; showing raw request body.")}
+                {props.invalidHint}
               </p>
             )}
             <pre className="bg-background/60 max-h-72 overflow-auto rounded border p-2 pr-6 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap">
@@ -532,6 +542,33 @@ function RequestBodyView(props: { raw: string }) {
         )}
       </div>
     </DetailSection>
+  );
+}
+
+function RequestBodyView(props: { raw: string }) {
+  const { t } = useTranslation();
+  return (
+    <JsonOrRawBodyView
+      raw={props.raw}
+      label={t("Request JSON Body")}
+      invalidHint={t("Invalid JSON; showing raw request body.")}
+    />
+  );
+}
+
+function ResponseBodyView(props: { raw: string; isStream: boolean }) {
+  const { t } = useTranslation();
+  // Stream responses are newline-delimited upstream SSE data payloads, not one JSON object.
+  const preferRaw =
+    props.isStream ||
+    (props.raw.includes("\n") && props.raw.trim().split("\n").length > 1);
+  return (
+    <JsonOrRawBodyView
+      raw={props.raw}
+      label={t("Upstream Response Body")}
+      preferRaw={preferRaw}
+      invalidHint={t("Invalid JSON; showing raw response body.")}
+    />
   );
 }
 
@@ -1311,6 +1348,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {/* Request body (JSON) */}
         {props.log.request_body && (
           <RequestBodyView raw={props.log.request_body} />
+        )}
+
+        {/* Upstream response body */}
+        {props.log.response_body && (
+          <ResponseBodyView
+            raw={props.log.response_body}
+            isStream={!!props.log.is_stream}
+          />
         )}
 
         {/* Content */}

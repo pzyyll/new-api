@@ -394,10 +394,10 @@ export function LogSettingsSection({
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Record request JSON body')}</FormLabel>
+                  <FormLabel>{t('Record request/response body')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Store full request JSON bodies for usage log details. This can significantly increase database size and may contain sensitive user-provided content.'
+                      'Store full request JSON and upstream response bodies for usage log details. Stream responses are stored as newline-delimited upstream data payloads. This can significantly increase database size and may contain sensitive content. Intended for temporary debugging.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>

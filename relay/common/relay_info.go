@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -163,6 +164,12 @@ type RelayInfo struct {
 	// http.Request.ContentLength manually (net/http only auto-detects it for
 	// *bytes.Reader/Buffer/strings.Reader). 0 means "let net/http decide".
 	UpstreamRequestBodySize int64
+
+	// responseBodyForLog holds upstream response content for usage-log details
+	// when RequestDetailLogEnabled is on. Streams append SSE data payloads;
+	// non-stream requests store the full upstream body.
+	responseBodyMu     sync.Mutex
+	responseBodyForLog strings.Builder
 
 	PriceData types.PriceData
 
@@ -674,6 +681,51 @@ func (info *RelayInfo) SetFirstResponseTime() {
 
 func (info *RelayInfo) HasSendResponse() bool {
 	return info.FirstResponseTime.After(info.StartTime)
+}
+
+// ResetResponseBodyForLog clears any captured upstream response body for the
+// current attempt (e.g. channel retry).
+func (info *RelayInfo) ResetResponseBodyForLog() {
+	if info == nil {
+		return
+	}
+	info.responseBodyMu.Lock()
+	defer info.responseBodyMu.Unlock()
+	info.responseBodyForLog.Reset()
+}
+
+// SetResponseBodyForLog replaces the captured upstream response body.
+func (info *RelayInfo) SetResponseBodyForLog(body string) {
+	if info == nil {
+		return
+	}
+	info.responseBodyMu.Lock()
+	defer info.responseBodyMu.Unlock()
+	info.responseBodyForLog.Reset()
+	info.responseBodyForLog.WriteString(body)
+}
+
+// AppendResponseBodyForLog appends one upstream stream data payload plus a newline.
+func (info *RelayInfo) AppendResponseBodyForLog(chunk string) {
+	if info == nil || chunk == "" {
+		return
+	}
+	info.responseBodyMu.Lock()
+	defer info.responseBodyMu.Unlock()
+	info.responseBodyForLog.WriteString(chunk)
+	if !strings.HasSuffix(chunk, "\n") {
+		info.responseBodyForLog.WriteByte('\n')
+	}
+}
+
+// GetResponseBodyForLog returns the captured upstream response body text.
+func (info *RelayInfo) GetResponseBodyForLog() string {
+	if info == nil {
+		return ""
+	}
+	info.responseBodyMu.Lock()
+	defer info.responseBodyMu.Unlock()
+	return info.responseBodyForLog.String()
 }
 
 type TaskRelayInfo struct {
