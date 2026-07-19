@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func TestIsNullOrUnknownUpstreamCode(t *testing.T) {
 }
 
 func TestClassifyUpstreamOpenAIErrorCapacity(t *testing.T) {
-	t.Parallel()
+	// Not parallel: shares package-level UpstreamCapacityKeywords with config tests.
 
 	tests := []struct {
 		name       string
@@ -96,14 +97,13 @@ func TestClassifyUpstreamOpenAIErrorCapacity(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			assert.Equal(t, tt.wantKind, ClassifyUpstreamOpenAIError(tt.message, tt.code, tt.status))
 		})
 	}
 }
 
 func TestNormalizeSoftUpstreamErrorCapacity(t *testing.T) {
-	t.Parallel()
+	// Not parallel: shares package-level UpstreamCapacityKeywords with config tests.
 
 	original := types.WithOpenAIError(types.OpenAIError{
 		Message: xaiCapacityMessage,
@@ -127,4 +127,18 @@ func TestNormalizeSoftUpstreamErrorLeavesNonCapacity(t *testing.T) {
 	require.NotNil(t, normalized)
 	assert.Equal(t, types.ErrorCode("rate_limit_exceeded"), normalized.GetErrorCode())
 	assert.Equal(t, http.StatusTooManyRequests, normalized.StatusCode)
+}
+
+func TestUpstreamCapacityKeywordsAreConfigurable(t *testing.T) {
+	orig := append([]string(nil), operation_setting.UpstreamCapacityKeywords...)
+	t.Cleanup(func() {
+		operation_setting.UpstreamCapacityKeywords = orig
+	})
+
+	operation_setting.UpstreamCapacityKeywordsFromString("custom-overload-token\n")
+	require.True(t, HasUpstreamCapacityKeywords("provider says custom-overload-token now"))
+	require.False(t, HasUpstreamCapacityKeywords("at capacity due to high demand"))
+	require.Equal(t, SoftFailKindCapacity, ClassifyUpstreamOpenAIError(
+		"hit custom-overload-token", nil, http.StatusInternalServerError,
+	))
 }

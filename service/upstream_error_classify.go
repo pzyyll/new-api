@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 )
 
@@ -28,25 +29,6 @@ const (
 	ginKeyAffinityCleared         = "affinity_cleared"
 	ginKeyClientPayloadWritten    = "client_payload_written"
 )
-
-// Capacity message substrings (lowercase). Keep the phase-1 fixed list small and explicit.
-const (
-	upstreamCapacityKeywordAtCapacity             = "at capacity"
-	upstreamCapacityKeywordHighDemand             = "high demand"
-	upstreamCapacityKeywordOverloaded             = "overloaded"
-	upstreamCapacityKeywordTemporarilyUnavailable = "temporarily unavailable"
-	upstreamCapacityKeywordServerIsBusy           = "server is busy"
-	upstreamCapacityKeywordPriorityProcessing     = "priority processing"
-)
-
-var upstreamCapacityKeywords = []string{
-	upstreamCapacityKeywordAtCapacity,
-	upstreamCapacityKeywordHighDemand,
-	upstreamCapacityKeywordOverloaded,
-	upstreamCapacityKeywordTemporarilyUnavailable,
-	upstreamCapacityKeywordServerIsBusy,
-	upstreamCapacityKeywordPriorityProcessing,
-}
 
 // IsSoftFailErrorCode reports internal soft-failure codes that must retry across
 // channels, clear affinity, and never auto-ban.
@@ -78,13 +60,17 @@ func IsNullOrUnknownUpstreamCode(code any) bool {
 	}
 }
 
-// HasUpstreamCapacityKeywords reports whether message text matches capacity keywords.
+// HasUpstreamCapacityKeywords reports whether message text matches configured
+// capacity keywords (option UpstreamCapacityKeywords; case-insensitive substrings).
 func HasUpstreamCapacityKeywords(message string) bool {
 	lower := strings.ToLower(message)
 	if lower == "" {
 		return false
 	}
-	for _, keyword := range upstreamCapacityKeywords {
+	for _, keyword := range operation_setting.UpstreamCapacityKeywords {
+		if keyword == "" {
+			continue
+		}
 		if strings.Contains(lower, keyword) {
 			return true
 		}

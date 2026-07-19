@@ -81,6 +81,7 @@ const routingReliabilitySchema = z
     AutomaticDisableChannelEnabled: z.boolean(),
     AutomaticEnableChannelEnabled: z.boolean(),
     AutomaticDisableKeywords: z.string(),
+    UpstreamCapacityKeywords: z.string(),
     AutomaticDisableStatusCodes: z.string(),
     AutomaticRetryStatusCodes: z.string(),
     monitor_setting: z.object({
@@ -146,6 +147,7 @@ type RoutingReliabilitySectionProps = {
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
     AutomaticDisableKeywords: string
+    UpstreamCapacityKeywords: string
     AutomaticDisableStatusCodes: string
     AutomaticRetryStatusCodes: string
     'monitor_setting.auto_test_channel_enabled': boolean
@@ -172,6 +174,7 @@ type NormalizedRoutingReliabilityValues = {
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
+  UpstreamCapacityKeywords: string
   AutomaticDisableStatusCodes: string
   AutomaticRetryStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
@@ -200,6 +203,9 @@ const buildFormDefaults = (
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
+  ),
+  UpstreamCapacityKeywords: normalizeLineEndings(
+    defaults.UpstreamCapacityKeywords ?? ''
   ),
   AutomaticDisableStatusCodes: defaults.AutomaticDisableStatusCodes ?? '',
   AutomaticRetryStatusCodes: defaults.AutomaticRetryStatusCodes ?? '',
@@ -231,6 +237,9 @@ const normalizeDefaults = (
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     defaults.AutomaticDisableKeywords ?? ''
+  ),
+  UpstreamCapacityKeywords: normalizeLineEndings(
+    defaults.UpstreamCapacityKeywords ?? ''
   ),
   AutomaticDisableStatusCodes: parseHttpStatusCodeRules(
     defaults.AutomaticDisableStatusCodes ?? ''
@@ -264,6 +273,9 @@ const normalizeFormValues = (
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
     values.AutomaticDisableKeywords
+  ),
+  UpstreamCapacityKeywords: normalizeLineEndings(
+    values.UpstreamCapacityKeywords
   ),
   AutomaticDisableStatusCodes: parseHttpStatusCodeRules(
     values.AutomaticDisableStatusCodes
@@ -471,6 +483,30 @@ export function RoutingReliabilitySection({
                             {t('Normalized:')} {autoRetryParsed.normalized}
                           </span>
                         )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='UpstreamCapacityKeywords'
+                render={({ field }) => (
+                  <FormItem className='xl:col-span-2'>
+                    <FormLabel>{t('Capacity soft-fail keywords')}</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={6}
+                        placeholder={t('one keyword per line')}
+                        {...field}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'If an upstream error contains any of these keywords (case insensitive) and has a null/unknown error code or a 429/5xx status, treat it as temporary capacity overload: retry/switch channels without auto-disabling, and clear channel affinity.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

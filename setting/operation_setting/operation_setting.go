@@ -30,3 +30,29 @@ func AutomaticDisableKeywordsFromString(s string) {
 		}
 	}
 }
+
+// UpstreamCapacityKeywords are case-insensitive substrings used to classify
+// transient capacity/overload soft failures (retryable, no auto-ban).
+// Defaults cover common provider messages such as xAI high-demand capacity.
+var UpstreamCapacityKeywords = []string{
+	"at capacity",
+	"high demand",
+	"overloaded",
+	"temporarily unavailable",
+	"server is busy",
+	"priority processing",
+}
+
+func UpstreamCapacityKeywordsToString() string {
+	return strings.Join(UpstreamCapacityKeywords, "\n")
+}
+
+func UpstreamCapacityKeywordsFromString(s string) {
+	UpstreamCapacityKeywords = []string{}
+	for _, line := range strings.Split(s, "\n") {
+		k := strings.ToLower(strings.TrimSpace(line))
+		if k != "" {
+			UpstreamCapacityKeywords = append(UpstreamCapacityKeywords, k)
+		}
+	}
+}
