@@ -157,6 +157,16 @@ var PreConsumedQuota = 500
 
 var RetryTimes = 0
 
+// SameChannelRetryTimes is the max number of extra attempts on the same channel
+// with exponential backoff before switching to another channel.
+var SameChannelRetryTimes = 0
+
+// SameChannelRetryBaseDelayMs is the first same-channel backoff delay in milliseconds.
+var SameChannelRetryBaseDelayMs = 200
+
+// SameChannelRetryMaxDelayMs caps exponential same-channel backoff delays.
+var SameChannelRetryMaxDelayMs = 2000
+
 //var RootUserEmail = ""
 
 var IsMasterNode bool
