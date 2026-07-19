@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/pkg/channellatency"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -136,21 +137,32 @@ func GetChannel(group string, model string, excludedChannelIds map[int]struct{},
 	targetPriority := priorities[0]
 
 	targetAbilities := make([]Ability, 0, len(matchedAbilities))
-	var weightSum uint
 	for _, ability := range matchedAbilities {
 		if ability.PriorityValue() == targetPriority {
 			targetAbilities = append(targetAbilities, ability)
-			weightSum += ability.Weight + 10
 		}
 	}
 	if len(targetAbilities) == 0 {
 		return nil, errors.New("no channel found")
 	}
 
+	targetChannelIDs := make([]int, 0, len(targetAbilities))
+	for _, ability := range targetAbilities {
+		targetChannelIDs = append(targetChannelIDs, ability.ChannelId)
+	}
+	peerRefMs := channellatency.PeerRefMs(targetChannelIDs, model)
+	effectiveWeights := make([]int, len(targetAbilities))
+	var weightSum uint
+	for i, ability := range targetAbilities {
+		eff := channellatency.WeightForSelection(ability.ChannelId, model, int(ability.Weight), peerRefMs)
+		effectiveWeights[i] = eff
+		weightSum += uint(eff) + 10
+	}
+
 	weight := common.GetRandomInt(int(weightSum))
 	selectedChannelID := 0
-	for _, ability := range targetAbilities {
-		weight -= int(ability.Weight) + 10
+	for i, ability := range targetAbilities {
+		weight -= effectiveWeights[i] + 10
 		if weight <= 0 {
 			selectedChannelID = ability.ChannelId
 			break
