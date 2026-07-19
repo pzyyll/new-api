@@ -130,7 +130,17 @@ func formatUserLogs(logs []*Log, startIdx int) {
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 	}
+	stripLogDetailBodies(logs)
 	assignDisplayLogIds(logs, startIdx)
+}
+
+// stripLogDetailBodies drops large body fields from list payloads. Bodies are
+// loaded on demand from disk (or legacy DB columns via the detail API).
+func stripLogDetailBodies(logs []*Log) {
+	for i := range logs {
+		logs[i].RequestBody = ""
+		logs[i].ResponseBody = ""
+	}
 }
 
 func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
@@ -320,8 +330,8 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
-		RequestBody:       requestBody,
-		ResponseBody:      responseBody,
+		// Request/response bodies are stored on disk (see service.WriteRequestDetailBodies),
+		// not in the logs table.
 	}
 	err := createLog(log)
 	if err != nil {
@@ -388,8 +398,8 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		RequestId:         requestId,
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
-		RequestBody:       params.RequestBody,
-		ResponseBody:      params.ResponseBody,
+		// Request/response bodies are stored on disk (see service.WriteRequestDetailBodies),
+		// not in the logs table.
 	}
 	err := createLog(log)
 	if err != nil {
@@ -564,7 +574,26 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		}
 	}
 
+	stripLogDetailBodies(logs)
 	return logs, total, err
+}
+
+// GetLogAccessByRequestId returns a log row used to authorize request-detail access.
+// Multiple rows may share a request_id (retries); any matching row is sufficient.
+func GetLogAccessByRequestId(requestId string) (*Log, error) {
+	if strings.TrimSpace(requestId) == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var log Log
+	order := "id desc"
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		order = clickHouseLogOrder("")
+	}
+	err := LOG_DB.Model(&Log{}).Where("request_id = ?", requestId).Order(order).Limit(1).First(&log).Error
+	if err != nil {
+		return nil, err
+	}
+	return &log, nil
 }
 
 const logSearchCountLimit = 10000

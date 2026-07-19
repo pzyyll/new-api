@@ -91,6 +91,24 @@ export async function getUserInfo(
   return res.data
 }
 
+export type LogRequestDetail = {
+  request_id: string
+  request_body?: string
+  response_body?: string
+  is_stream?: boolean
+}
+
+export async function getLogRequestDetail(
+  requestId: string,
+  isAdmin: boolean
+): Promise<{ success: boolean; message?: string; data?: LogRequestDetail }> {
+  const path = isAdmin
+    ? '/api/log/request-detail'
+    : '/api/log/self/request-detail'
+  const res = await api.get(path, { params: { request_id: requestId } })
+  return res.data
+}
+
 // ============================================================================
 // MjProxy (Drawing) Logs API
 // ============================================================================

@@ -35,7 +35,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
@@ -51,6 +51,7 @@ import { formatBillingCurrencyFromUSD } from "@/lib/currency";
 import { formatLogQuota, formatTokens, formatUseTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import { getLogRequestDetail } from "../../api";
 import type { UsageLog } from "../../data/schema";
 import {
   parseLogOther,
@@ -585,6 +586,64 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const details = props.log.content ?? "";
   const other = parseLogOther(props.log.other);
   const typeConfig = getLogTypeConfig(props.log.type);
+  const [requestBody, setRequestBody] = useState(props.log.request_body ?? "");
+  const [responseBody, setResponseBody] = useState(
+    props.log.response_body ?? ""
+  );
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+
+  useEffect(() => {
+    if (!props.open) {
+      return;
+    }
+    setRequestBody(props.log.request_body ?? "");
+    setResponseBody(props.log.response_body ?? "");
+    setDetailError("");
+
+    const requestId = props.log.request_id?.trim();
+    if (!requestId) {
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    void getLogRequestDetail(requestId, props.isAdmin)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success) {
+          // No file / no permission is normal when detail logging was off.
+          return;
+        }
+        if (res.data?.request_body) {
+          setRequestBody(res.data.request_body);
+        }
+        if (res.data?.response_body) {
+          setResponseBody(res.data.response_body);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDetailError(t("Failed to load request detail bodies."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    props.open,
+    props.isAdmin,
+    props.log.request_id,
+    props.log.request_body,
+    props.log.response_body,
+    t,
+  ]);
 
   const isViolation = isViolationFeeLog(other);
   const isRefund = props.log.type === 6;
@@ -1345,15 +1404,19 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
-        {/* Request body (JSON) */}
-        {props.log.request_body && (
-          <RequestBodyView raw={props.log.request_body} />
+        {/* Request / upstream response bodies (lazy-loaded from disk by request_id) */}
+        {detailLoading && (
+          <p className="text-muted-foreground text-[11px]">
+            {t("Loading request detail bodies...")}
+          </p>
         )}
-
-        {/* Upstream response body */}
-        {props.log.response_body && (
+        {detailError && (
+          <p className="text-destructive text-[11px]">{detailError}</p>
+        )}
+        {requestBody && <RequestBodyView raw={requestBody} />}
+        {responseBody && (
           <ResponseBodyView
-            raw={props.log.response_body}
+            raw={responseBody}
             isStream={!!props.log.is_stream}
           />
         )}

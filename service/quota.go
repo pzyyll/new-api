@@ -242,6 +242,9 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
+	requestBody := CaptureRequestBodyForLog(ctx)
+	responseBody := CaptureResponseBodyForLog(relayInfo)
+	PersistRequestDetailBodies(ctx, requestBody, responseBody)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     usage.InputTokens,
@@ -255,8 +258,6 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
-		RequestBody:      CaptureRequestBodyForLog(ctx),
-		ResponseBody:     CaptureResponseBodyForLog(relayInfo),
 	})
 }
 
@@ -367,6 +368,9 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
+	requestBody := CaptureRequestBodyForLog(ctx)
+	responseBody := CaptureResponseBodyForLog(relayInfo)
+	PersistRequestDetailBodies(ctx, requestBody, responseBody)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     usage.PromptTokens,
@@ -380,8 +384,6 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
-		RequestBody:      CaptureRequestBodyForLog(ctx),
-		ResponseBody:     CaptureResponseBodyForLog(relayInfo),
 	})
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.CompletionTokens))

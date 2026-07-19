@@ -1,13 +1,17 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func GetAllLogs(c *gin.Context) {
@@ -148,6 +152,83 @@ func GetLogsSelfStat(c *gin.Context) {
 		},
 	})
 	return
+}
+
+// GetLogRequestDetail returns request/response bodies for a request_id (admin).
+// Bodies are read from disk; legacy DB columns are used as a fallback.
+func GetLogRequestDetail(c *gin.Context) {
+	getLogRequestDetail(c, 0, true)
+}
+
+// GetUserLogRequestDetail returns request/response bodies for a request_id owned by the current user.
+func GetUserLogRequestDetail(c *gin.Context) {
+	getLogRequestDetail(c, c.GetInt("id"), false)
+}
+
+func getLogRequestDetail(c *gin.Context, userId int, isAdmin bool) {
+	requestId := strings.TrimSpace(c.Query("request_id"))
+	if requestId == "" {
+		common.ApiErrorMsg(c, "request_id is required")
+		return
+	}
+	logRow, err := model.GetLogAccessByRequestId(requestId)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ApiErrorMsg(c, "log not found")
+			return
+		}
+		common.ApiError(c, err)
+		return
+	}
+	if !isAdmin && logRow.UserId != userId {
+		common.ApiErrorMsg(c, "log not found")
+		return
+	}
+
+	bodies, err := service.ReadRequestDetailBodies(requestId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// Legacy fallback for rows written before file-backed storage.
+	if bodies.RequestBody == "" {
+		bodies.RequestBody = logRow.RequestBody
+	}
+	if bodies.ResponseBody == "" {
+		bodies.ResponseBody = logRow.ResponseBody
+	}
+	common.ApiSuccess(c, gin.H{
+		"request_id":    requestId,
+		"request_body":  bodies.RequestBody,
+		"response_body": bodies.ResponseBody,
+		"is_stream":     logRow.IsStream,
+	})
+}
+
+// GetRequestDetailStorageInfo returns disk usage for request-detail files (root).
+func GetRequestDetailStorageInfo(c *gin.Context) {
+	dir, count, size, err := service.RequestDetailStorageInfo()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"dir":        dir,
+		"file_count": count,
+		"total_size": size,
+	})
+}
+
+// ClearRequestDetailFiles deletes all request-detail body files on this node (root).
+func ClearRequestDetailFiles(c *gin.Context) {
+	removed, err := service.ClearAllRequestDetailBodies()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"removed": removed,
+	})
 }
 
 // DeleteHistoryLogs is the legacy synchronous log cleanup endpoint (DELETE /api/log/).

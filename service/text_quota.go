@@ -488,6 +488,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	attachQuotaSaturation(ctx, relayInfo, other)
 
+	requestBody := CaptureRequestBodyForLog(ctx)
+	responseBody := CaptureResponseBodyForLog(relayInfo)
+	PersistRequestDetailBodies(ctx, requestBody, responseBody)
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     summary.PromptTokens,
@@ -501,8 +504,6 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		IsStream:         relayInfo.IsStream,
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
-		RequestBody:      CaptureRequestBodyForLog(ctx),
-		ResponseBody:     CaptureResponseBodyForLog(relayInfo),
 	})
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))

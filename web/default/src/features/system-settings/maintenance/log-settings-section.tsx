@@ -99,6 +99,12 @@ type ServerLogInfo = {
   newest_time?: string
 }
 
+type RequestDetailStorageInfo = {
+  dir: string
+  file_count: number
+  total_size: number
+}
+
 const HOURS_IN_DAY = 24
 
 function formatBytes(bytes: number, decimals = 2): string {
@@ -167,11 +173,24 @@ export function LogSettingsSection({
   const [serverLogCleanupMode, setServerLogCleanupMode] = useState('by_count')
   const [serverLogCleanupValue, setServerLogCleanupValue] = useState(10)
   const [serverLogCleanupLoading, setServerLogCleanupLoading] = useState(false)
+  const [requestDetailInfo, setRequestDetailInfo] =
+    useState<RequestDetailStorageInfo | null>(null)
+  const [requestDetailClearLoading, setRequestDetailClearLoading] =
+    useState(false)
 
   const fetchServerLogInfo = useCallback(async () => {
     try {
       const res = await api.get('/api/performance/logs')
       if (res.data.success) setServerLogInfo(res.data.data)
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
+  const fetchRequestDetailInfo = useCallback(async () => {
+    try {
+      const res = await api.get('/api/log/request-detail/storage')
+      if (res.data.success) setRequestDetailInfo(res.data.data)
     } catch {
       /* ignore */
     }
@@ -186,7 +205,8 @@ export function LogSettingsSection({
 
   useEffect(() => {
     fetchServerLogInfo()
-  }, [fetchServerLogInfo])
+    fetchRequestDetailInfo()
+  }, [fetchServerLogInfo, fetchRequestDetailInfo])
 
   useEffect(() => {
     let cancelled = false
@@ -321,6 +341,29 @@ export function LogSettingsSection({
     }
   }
 
+  const clearRequestDetailFiles = async () => {
+    setRequestDetailClearLoading(true)
+    try {
+      const res = await api.delete('/api/log/request-detail')
+      if (!res.data.success) {
+        throw new Error(res.data.message || t('Failed to clear request detail files'))
+      }
+      const removed = res.data.data?.removed ?? 0
+      toast.success(
+        t('Cleared {{count}} request detail directories.', { count: removed })
+      )
+      await fetchRequestDetailInfo()
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t('Failed to clear request detail files')
+      toast.error(message)
+    } finally {
+      setRequestDetailClearLoading(false)
+    }
+  }
+
   const cleanupServerLogFiles = async () => {
     if (
       !serverLogCleanupValue ||
@@ -397,7 +440,7 @@ export function LogSettingsSection({
                   <FormLabel>{t('Record request/response body')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Store full request JSON and upstream response bodies for usage log details. Stream responses are stored as newline-delimited upstream data payloads. This can significantly increase database size and may contain sensitive content. Intended for temporary debugging.'
+                      'Store full request JSON and upstream response bodies as files under log-dir/request-detail/{request_id}/ for usage log details. Stream responses are stored as newline-delimited upstream data payloads. Not written to the database. Intended for temporary debugging; multi-node deployments need a shared log-dir.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -411,6 +454,82 @@ export function LogSettingsSection({
               </SettingsSwitchItem>
             )}
           />
+
+          <SettingsControlGroup className='space-y-3'>
+            <div>
+              <h4 className='text-sm font-medium'>
+                {t('Request detail body files')}
+              </h4>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Clear all request/response body files stored for usage log details on this node.'
+                )}
+              </p>
+            </div>
+            {requestDetailInfo && (
+              <div className='rounded-lg border p-3 text-sm'>
+                <div className='grid grid-cols-1 gap-2 md:grid-cols-3'>
+                  <div>
+                    <span className='text-muted-foreground'>
+                      {t('Directory')}:
+                    </span>{' '}
+                    <span className='font-mono text-xs break-all'>
+                      {requestDetailInfo.dir}
+                    </span>
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>
+                      {t('File Count')}:
+                    </span>{' '}
+                    {requestDetailInfo.file_count}
+                  </div>
+                  <div>
+                    <span className='text-muted-foreground'>
+                      {t('Total Size')}:
+                    </span>{' '}
+                    {formatBytes(requestDetailInfo.total_size)}
+                  </div>
+                </div>
+              </div>
+            )}
+            <AlertDialog>
+              <AlertDialogTrigger
+                render={
+                  <Button
+                    type='button'
+                    variant='destructive'
+                    size='sm'
+                    disabled={requestDetailClearLoading}
+                  />
+                }
+              >
+                {requestDetailClearLoading
+                  ? t('Clearing...')
+                  : t('Clear request detail files')}
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t('Clear all request detail body files?')}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t(
+                      'This permanently deletes all request/response body files under the request-detail directory on this node. Usage log rows are not affected.'
+                    )}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant='destructive'
+                    onClick={clearRequestDetailFiles}
+                  >
+                    {t('Clear')}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </SettingsControlGroup>
 
           <SettingsControlGroup className='space-y-3'>
             <div>

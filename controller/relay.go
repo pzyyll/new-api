@@ -493,7 +493,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if !common.RequestDetailLogEnabled {
 			responseBody = ""
 		}
-		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other, requestBody, responseBody)
+		service.PersistRequestDetailBodies(c, requestBody, responseBody)
+		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other, "", "")
 	}
 
 }
