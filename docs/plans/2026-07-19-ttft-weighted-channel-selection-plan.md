@@ -7,7 +7,7 @@
 **Assumptions:**
 
 - Feature is **off by default** to avoid sudden traffic shifts.
-- Phase 1 uses an **in-process EWMA** of successful stream TTFT keyed by `channel_id` (optionally refined by model). No new DB table in phase 1.
+- Phase 1 uses an **in-process EWMA** of successful stream TTFT keyed by **`(channel_id, origin_model_name)`** (e.g. `12` + `gpt-4o`). Model name means the client/origin model string (`OriginModelName`), not a numeric meta id. No new DB table in phase 1.
 - Existing `perf_metrics` stays model+group (marketplace UI). Channel routing does **not** read that table hot-path.
 - `channels.response_time` (channel test) is **not** used for routing in phase 1.
 - Formula: `effectiveWeight = max(1, round(baseWeight * factor))` where `baseWeight` is current configured weight (same +10 / smoothing rules as today after the effective weight is computed).
@@ -76,7 +76,7 @@
 **Steps:**
 
 - [ ] Define store with `sync.Map` or sharded maps; entry fields: `ewmaMs float64`, `samples int64`, `updatedAt`
-- [ ] Key: `channelId` only for phase 1 **or** `channelId + "\x00" + model` if model-scoped (recommend **channel+model** when `OriginModelName` non-empty, else channel-only)
+- [ ] Key: always **`channelId + "\x00" + originModelName`** when model is non-empty; channel-only key only as empty-model fallback
 - [ ] `ObserveChannelTtft(channelId int, model string, ttftMs int64)`:
   - ignore if `!TtftRoutingEnabled` (optional: still record when disabled for warm cache — **assume record only when enabled** to save CPU)
   - ignore `ttftMs < 0`
@@ -250,7 +250,7 @@
 
 ## Open Questions
 
-- Model-scoped key vs channel-only: plan recommends channel+model when model present.
+- **Decided:** stats key is `(channel_id, origin_model_name)` where model is the string name (e.g. `gpt-4o`), not a numeric id.
 - Whether to update EWMA when feature disabled (warm cache): plan assumes only when enabled.
 - Redis shared store: deferred to phase 2.
 
@@ -265,7 +265,7 @@
 **假设：**
 
 - 功能**默认关闭**，避免流量突变。
-- 第一期用**进程内 EWMA** 维护渠道（建议 channel+model）TTFT，不新建 DB 表。
+- 第一期用**进程内 EWMA**，统计键为 **`(channel_id, origin_model_name)`**（如 `12` + `gpt-4o`）。此处「模型」指客户端原始模型名字符串，不是数字主键。不新建 DB 表。
 - 现有 `perf_metrics` 仍是 **model+group** 维度，仅供模型广场；选渠热路径**不读**该表。
 - 第一期**不使用** `channels.response_time`（渠道测试耗时）。
 - 公式：`effectiveWeight = max(1, round(baseWeight * factor))`（在现有 +10 / smoothing 规则之前或之后需统一，推荐先算 effective 再走现有 smoothing）。
@@ -315,7 +315,7 @@
 
 **步骤：**
 
-- [ ] Key：`channelId + model`（model 空则仅 channel）
+- [ ] Key：固定为 **`channelId + originModelName`**（model 空时才退化为仅 channel）
 - [ ] 首样本直接赋值；其后 EWMA 更新
 - [ ] 样本不足或无效 → factor=1
 - [ ] `factor = clamp(ref/avg, min, max)`
@@ -415,7 +415,7 @@
 
 ## 待决问题
 
-- Key 用 channel+model（推荐）还是仅 channel  
+- **已决：** 统计维度为 `(channel_id, origin_model_name)`（模型名为 `gpt-4o` 这类字符串）  
 - 关闭功能时是否仍采样（计划：仅开启时采样）  
 - 是否二期 Redis 共享  
 
