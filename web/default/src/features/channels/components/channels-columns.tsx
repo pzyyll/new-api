@@ -187,6 +187,7 @@ function PriorityCell({ channel }: { channel: Channel }) {
     return (
       <>
         <NumericSpinnerInput
+          key={`priority-tag-${tag}`}
           value={priority ?? 0}
           onChange={(value) => {
             setPendingValue(value)
@@ -217,6 +218,7 @@ function PriorityCell({ channel }: { channel: Channel }) {
   // Regular channel row - editable
   return (
     <NumericSpinnerInput
+      key={`priority-${channel.id}`}
       value={priority ?? 0}
       onChange={(value) => {
         handleUpdateChannelField(channel.id, 'priority', value, queryClient)
@@ -245,6 +247,7 @@ function WeightCell({ channel }: { channel: Channel }) {
     return (
       <>
         <NumericSpinnerInput
+          key={`weight-tag-${tag}`}
           value={weight ?? 0}
           onChange={(value) => {
             setPendingValue(value)
@@ -275,6 +278,7 @@ function WeightCell({ channel }: { channel: Channel }) {
   // Regular channel row - editable
   return (
     <NumericSpinnerInput
+      key={`weight-${channel.id}`}
       value={weight ?? 0}
       onChange={(value) => {
         handleUpdateChannelField(channel.id, 'weight', value, queryClient)

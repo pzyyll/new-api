@@ -326,6 +326,10 @@ export function ChannelsTable() {
     enableRowSelection: batchMode
       ? (row: Row<Channel>) => !isTagAggregateRow(row.original)
       : false,
+    // Stable ids keep row state (selection, expansion, spinner local values)
+    // attached to the channel after priority-driven list reordering.
+    getRowId: (row) =>
+      isTagAggregateRow(row) ? `tag:${row.tag ?? ''}` : String(row.id),
     onSortingChange: handleSortingChange,
     onColumnFiltersChange: handleColumnFiltersChange,
     onPaginationChange,
