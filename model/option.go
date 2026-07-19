@@ -158,6 +158,11 @@ func InitOptionMap() {
 	//common.OptionMap["ChatLink2"] = common.ChatLink2
 	common.OptionMap["QuotaPerUnit"] = strconv.FormatFloat(common.QuotaPerUnit, 'f', -1, 64)
 	common.OptionMap["RetryTimes"] = strconv.Itoa(common.RetryTimes)
+	common.OptionMap["TtftRoutingEnabled"] = strconv.FormatBool(operation_setting.TtftRoutingEnabled)
+	common.OptionMap["TtftRoutingMinSamples"] = strconv.FormatInt(operation_setting.TtftRoutingMinSamples, 10)
+	common.OptionMap["TtftRoutingMinFactor"] = strconv.FormatFloat(operation_setting.TtftRoutingMinFactor, 'f', -1, 64)
+	common.OptionMap["TtftRoutingMaxFactor"] = strconv.FormatFloat(operation_setting.TtftRoutingMaxFactor, 'f', -1, 64)
+	common.OptionMap["TtftRoutingRefMs"] = strconv.FormatInt(operation_setting.TtftRoutingRefMs, 10)
 	common.OptionMap["DataExportInterval"] = strconv.Itoa(common.DataExportInterval)
 	common.OptionMap["DataExportDefaultTime"] = common.DataExportDefaultTime
 	common.OptionMap["DefaultCollapseSidebar"] = strconv.FormatBool(common.DefaultCollapseSidebar)
@@ -309,6 +314,8 @@ func updateOptionMap(key string, value string) (err error) {
 			common.AutomaticDisableChannelEnabled = boolValue
 		case "AutomaticEnableChannelEnabled":
 			common.AutomaticEnableChannelEnabled = boolValue
+		case "TtftRoutingEnabled":
+			operation_setting.TtftRoutingEnabled = boolValue
 		case "LogConsumeEnabled":
 			common.LogConsumeEnabled = boolValue
 		case "RequestDetailLogEnabled":
@@ -529,6 +536,26 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
 	case "RetryTimes":
 		common.RetryTimes, _ = strconv.Atoi(value)
+	case "TtftRoutingMinSamples":
+		if n, errConv := strconv.ParseInt(value, 10, 64); errConv == nil {
+			operation_setting.TtftRoutingMinSamples = n
+		}
+		operation_setting.ClampTtftRoutingConfig()
+	case "TtftRoutingMinFactor":
+		if f, errConv := strconv.ParseFloat(value, 64); errConv == nil {
+			operation_setting.TtftRoutingMinFactor = f
+		}
+		operation_setting.ClampTtftRoutingConfig()
+	case "TtftRoutingMaxFactor":
+		if f, errConv := strconv.ParseFloat(value, 64); errConv == nil {
+			operation_setting.TtftRoutingMaxFactor = f
+		}
+		operation_setting.ClampTtftRoutingConfig()
+	case "TtftRoutingRefMs":
+		if n, errConv := strconv.ParseInt(value, 10, 64); errConv == nil {
+			operation_setting.TtftRoutingRefMs = n
+		}
+		operation_setting.ClampTtftRoutingConfig()
 	case "DataExportInterval":
 		common.DataExportInterval, _ = strconv.Atoi(value)
 	case "DataExportDefaultTime":

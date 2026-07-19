@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/channellatency"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
@@ -171,17 +172,28 @@ func GetRandomSatisfiedChannel(group string, model string, excludedChannelIds ma
 	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
 	targetPriority := int64(sortedUniquePriorities[0])
 
-	var sumWeight = 0
 	var targetChannels []*Channel
 	for _, channel := range eligibleChannels {
 		if channel.GetPriority() == targetPriority {
-			sumWeight += channel.GetWeight()
 			targetChannels = append(targetChannels, channel)
 		}
 	}
 
 	if len(targetChannels) == 0 {
 		return nil, fmt.Errorf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority)
+	}
+
+	channelIDs := make([]int, 0, len(targetChannels))
+	for _, channel := range targetChannels {
+		channelIDs = append(channelIDs, channel.Id)
+	}
+	peerRefMs := channellatency.PeerRefMs(channelIDs, model)
+	effectiveWeights := make([]int, len(targetChannels))
+	sumWeight := 0
+	for i, channel := range targetChannels {
+		eff := channellatency.WeightForSelection(channel.Id, model, channel.GetWeight(), peerRefMs)
+		effectiveWeights[i] = eff
+		sumWeight += eff
 	}
 
 	// smoothing factor and adjustment
@@ -205,8 +217,8 @@ func GetRandomSatisfiedChannel(group string, model string, excludedChannelIds ma
 	randomWeight := rand.Intn(totalWeight)
 
 	// Find a channel based on its weight
-	for _, channel := range targetChannels {
-		randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
+	for i, channel := range targetChannels {
+		randomWeight -= effectiveWeights[i]*smoothingFactor + smoothingAdjustment
 		if randomWeight < 0 {
 			return channel, nil
 		}
