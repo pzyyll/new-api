@@ -1,3 +1,5 @@
+// ABOUTME: Manages model-to-channel abilities and database-backed channel selection.
+// ABOUTME: Selects the highest-priority eligible channel while honoring retry exclusions.
 package model
 
 import (
@@ -68,7 +70,7 @@ func GetAllEnableAbilities() []Ability {
 	return abilities
 }
 
-func GetChannel(group string, model string, retry int, userAgent string, requestPath string) (*Channel, error) {
+func GetChannel(group string, model string, excludedChannelIds map[int]struct{}, allowMultiKeyFallback bool, userAgent string, requestPath string) (*Channel, error) {
 	var abilities []Ability
 	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
 		Order("priority DESC, weight DESC").
@@ -96,14 +98,25 @@ func GetChannel(group string, model string, retry int, userAgent string, request
 	}
 
 	matchedAbilities := make([]Ability, 0, len(abilities))
+	multiKeyFallbackAbilities := make([]Ability, 0)
 	for _, ability := range abilities {
 		channel, ok := channelByID[ability.ChannelId]
 		if !ok {
 			return nil, fmt.Errorf("channel %d not found", ability.ChannelId)
 		}
-		if channel.MatchUserAgent(userAgent) {
-			matchedAbilities = append(matchedAbilities, ability)
+		if !channel.MatchUserAgent(userAgent) {
+			continue
 		}
+		if _, excluded := excludedChannelIds[ability.ChannelId]; excluded {
+			if channel.ChannelInfo.IsMultiKey {
+				multiKeyFallbackAbilities = append(multiKeyFallbackAbilities, ability)
+			}
+			continue
+		}
+		matchedAbilities = append(matchedAbilities, ability)
+	}
+	if len(matchedAbilities) == 0 && allowMultiKeyFallback {
+		matchedAbilities = multiKeyFallbackAbilities
 	}
 	if len(matchedAbilities) == 0 {
 		return nil, nil
@@ -120,10 +133,7 @@ func GetChannel(group string, model string, retry int, userAgent string, request
 		priorities = append(priorities, priority)
 	}
 	sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
-	if retry >= len(priorities) {
-		retry = len(priorities) - 1
-	}
-	targetPriority := priorities[retry]
+	targetPriority := priorities[0]
 
 	targetAbilities := make([]Ability, 0, len(matchedAbilities))
 	var weightSum uint

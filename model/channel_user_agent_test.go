@@ -3,9 +3,11 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -121,10 +123,146 @@ func TestGetChannel_DBFallbackSkipsHigherPriorityNonMatchingChannel(t *testing.T
 	}
 	require.NoError(t, low.Insert())
 
-	channel, err := GetChannel("default", "gpt-4o", 0, "my-client/1.0", "")
+	channel, err := GetChannel("default", "gpt-4o", nil, true, "my-client/1.0", "")
 	require.NoError(t, err)
 	require.NotNil(t, channel)
 	if channel.Id != low.Id {
 		t.Fatalf("GetChannel returned channel %d, want matching lower-priority channel %d", channel.Id, low.Id)
+	}
+}
+
+func TestGetRandomSatisfiedChannelExhaustsPriorityBeforeFallback(t *testing.T) {
+	for _, memoryCacheEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("memory_cache_%t", memoryCacheEnabled), func(t *testing.T) {
+			originalMemoryCacheEnabled := common.MemoryCacheEnabled
+			common.MemoryCacheEnabled = memoryCacheEnabled
+			t.Cleanup(func() {
+				common.MemoryCacheEnabled = originalMemoryCacheEnabled
+			})
+			truncateTables(t)
+
+			highPriority := int64(200)
+			lowPriority := int64(100)
+			weight := uint(1)
+			channels := []*Channel{
+				{
+					Status:   common.ChannelStatusEnabled,
+					Name:     "high-priority-a",
+					Key:      "high-key-a",
+					Models:   "gpt-4o",
+					Group:    "default",
+					Priority: &highPriority,
+					Weight:   &weight,
+				},
+				{
+					Status:   common.ChannelStatusEnabled,
+					Name:     "high-priority-b",
+					Key:      "high-key-b",
+					Models:   "gpt-4o",
+					Group:    "default",
+					Priority: &highPriority,
+					Weight:   &weight,
+				},
+				{
+					Status:   common.ChannelStatusEnabled,
+					Name:     "low-priority",
+					Key:      "low-key",
+					Models:   "gpt-4o",
+					Group:    "default",
+					Priority: &lowPriority,
+					Weight:   &weight,
+				},
+			}
+			for _, channel := range channels {
+				require.NoError(t, channel.Insert())
+			}
+			if memoryCacheEnabled {
+				InitChannelCache()
+			}
+
+			excludedChannelIds := make(map[int]struct{})
+			first, err := GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, true, "", "")
+			require.NoError(t, err)
+			require.NotNil(t, first)
+			assert.Equal(t, highPriority, first.GetPriority())
+			excludedChannelIds[first.Id] = struct{}{}
+
+			second, err := GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, true, "", "")
+			require.NoError(t, err)
+			require.NotNil(t, second)
+			assert.Equal(t, highPriority, second.GetPriority())
+			assert.NotEqual(t, first.Id, second.Id)
+			excludedChannelIds[second.Id] = struct{}{}
+
+			third, err := GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, true, "", "")
+			require.NoError(t, err)
+			require.NotNil(t, third)
+			assert.Equal(t, lowPriority, third.GetPriority())
+			excludedChannelIds[third.Id] = struct{}{}
+
+			exhausted, err := GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, true, "", "")
+			require.NoError(t, err)
+			assert.Nil(t, exhausted)
+		})
+	}
+}
+
+func TestGetRandomSatisfiedChannelFallsBackToMultiKeyAfterUntriedChannels(t *testing.T) {
+	for _, memoryCacheEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("memory_cache_%t", memoryCacheEnabled), func(t *testing.T) {
+			originalMemoryCacheEnabled := common.MemoryCacheEnabled
+			common.MemoryCacheEnabled = memoryCacheEnabled
+			t.Cleanup(func() {
+				common.MemoryCacheEnabled = originalMemoryCacheEnabled
+			})
+			truncateTables(t)
+
+			highPriority := int64(200)
+			lowPriority := int64(100)
+			weight := uint(1)
+			multiKey := &Channel{
+				Status:   common.ChannelStatusEnabled,
+				Name:     "multi-key-high-priority",
+				Key:      "key-a\nkey-b",
+				Models:   "gpt-4o",
+				Group:    "default",
+				Priority: &highPriority,
+				Weight:   &weight,
+				ChannelInfo: ChannelInfo{
+					IsMultiKey:   true,
+					MultiKeySize: 2,
+				},
+			}
+			require.NoError(t, multiKey.Insert())
+			low := &Channel{
+				Status:   common.ChannelStatusEnabled,
+				Name:     "single-key-low-priority",
+				Key:      "low-key",
+				Models:   "gpt-4o",
+				Group:    "default",
+				Priority: &lowPriority,
+				Weight:   &weight,
+			}
+			require.NoError(t, low.Insert())
+			if memoryCacheEnabled {
+				InitChannelCache()
+			}
+
+			excludedChannelIds := map[int]struct{}{multiKey.Id: {}}
+			selected, err := GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, true, "", "")
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			assert.Equal(t, low.Id, selected.Id)
+
+			excludedChannelIds[low.Id] = struct{}{}
+			selected, err = GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, false, "", "")
+			require.NoError(t, err)
+			assert.Nil(t, selected)
+
+			selected, err = GetRandomSatisfiedChannel("default", "gpt-4o", excludedChannelIds, true, "", "")
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			assert.Equal(t, multiKey.Id, selected.Id)
+		})
 	}
 }

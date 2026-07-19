@@ -1,3 +1,5 @@
+// ABOUTME: Maintains the in-memory channel cache and performs cached channel selection.
+// ABOUTME: Chooses untried channels by priority and weight for relay retries.
 package model
 
 import (
@@ -111,10 +113,10 @@ func SyncChannelCache(frequency int) {
 	}
 }
 
-func GetRandomSatisfiedChannel(group string, model string, retry int, userAgent string, requestPath string) (*Channel, error) {
+func GetRandomSatisfiedChannel(group string, model string, excludedChannelIds map[int]struct{}, allowMultiKeyFallback bool, userAgent string, requestPath string) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, userAgent, requestPath)
+		return GetChannel(group, model, excludedChannelIds, allowMultiKeyFallback, userAgent, requestPath)
 	}
 
 	channelSyncLock.RLock()
@@ -133,56 +135,53 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, userAgent 
 		return nil, nil
 	}
 
-	if len(channels) == 1 {
-		if channel, ok := channelsIDM[channels[0]]; ok {
-			if channel.MatchUserAgent(userAgent) {
-				return channel, nil
-			}
-			return nil, nil
+	eligibleChannels := make([]*Channel, 0, len(channels))
+	multiKeyFallbackChannels := make([]*Channel, 0)
+	for _, channelId := range channels {
+		channel, ok := channelsIDM[channelId]
+		if !ok {
+			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
 		}
-		return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channels[0])
+		if !channel.MatchUserAgent(userAgent) {
+			continue
+		}
+		if _, excluded := excludedChannelIds[channel.Id]; excluded {
+			if channel.ChannelInfo.IsMultiKey {
+				multiKeyFallbackChannels = append(multiKeyFallbackChannels, channel)
+			}
+			continue
+		}
+		eligibleChannels = append(eligibleChannels, channel)
+	}
+	if len(eligibleChannels) == 0 && allowMultiKeyFallback {
+		eligibleChannels = multiKeyFallbackChannels
+	}
+	if len(eligibleChannels) == 0 {
+		return nil, nil
 	}
 
 	uniquePriorities := make(map[int]bool)
-	for _, channelId := range channels {
-		if channel, ok := channelsIDM[channelId]; ok {
-			if channel.MatchUserAgent(userAgent) {
-				uniquePriorities[int(channel.GetPriority())] = true
-			}
-		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
-		}
-	}
-	if len(uniquePriorities) == 0 {
-		return nil, nil
+	for _, channel := range eligibleChannels {
+		uniquePriorities[int(channel.GetPriority())] = true
 	}
 	var sortedUniquePriorities []int
 	for priority := range uniquePriorities {
 		sortedUniquePriorities = append(sortedUniquePriorities, priority)
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(sortedUniquePriorities)))
+	targetPriority := int64(sortedUniquePriorities[0])
 
-	if retry >= len(uniquePriorities) {
-		retry = len(uniquePriorities) - 1
-	}
-	targetPriority := int64(sortedUniquePriorities[retry])
-
-	// get the priority for the given retry number
 	var sumWeight = 0
 	var targetChannels []*Channel
-	for _, channelId := range channels {
-		if channel, ok := channelsIDM[channelId]; ok {
-			if channel.GetPriority() == targetPriority && channel.MatchUserAgent(userAgent) {
-				sumWeight += channel.GetWeight()
-				targetChannels = append(targetChannels, channel)
-			}
-		} else {
-			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelId)
+	for _, channel := range eligibleChannels {
+		if channel.GetPriority() == targetPriority {
+			sumWeight += channel.GetWeight()
+			targetChannels = append(targetChannels, channel)
 		}
 	}
 
 	if len(targetChannels) == 0 {
-		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
+		return nil, fmt.Errorf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority)
 	}
 
 	// smoothing factor and adjustment
