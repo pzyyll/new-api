@@ -395,6 +395,11 @@ func shouldSameChannelRetry(c *gin.Context, openaiErr *types.NewAPIError) bool {
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
 		return false
 	}
+	// Upstream request transport failures are often wrapped as HTTP 500 with
+	// ErrorCodeDoRequestFailed; treat them as same-channel transient errors.
+	if openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed {
+		return true
+	}
 	return isSameChannelRetryStatusCode(openaiErr.StatusCode)
 }
 
@@ -404,6 +409,9 @@ func shouldSameChannelRetryTask(c *gin.Context, taskErr *dto.TaskError) bool {
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
+	}
+	if taskErr.Code == string(types.ErrorCodeDoRequestFailed) {
+		return true
 	}
 	return isSameChannelRetryStatusCode(taskErr.StatusCode)
 }
