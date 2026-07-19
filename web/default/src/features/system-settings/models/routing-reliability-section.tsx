@@ -69,6 +69,9 @@ type ChannelTestMode = (typeof channelTestModes)[number]
 const routingReliabilitySchema = z
   .object({
     RetryTimes: z.coerce.number().min(0).max(10),
+    SameChannelRetryTimes: z.coerce.number().min(0).max(5),
+    SameChannelRetryBaseDelayMs: z.coerce.number().min(0).max(60000),
+    SameChannelRetryMaxDelayMs: z.coerce.number().min(0).max(60000),
     ChannelDisableThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
     AutomaticEnableChannelEnabled: z.boolean(),
@@ -118,6 +121,9 @@ type RoutingReliabilityFormInput = z.input<typeof routingReliabilitySchema>
 type RoutingReliabilitySectionProps = {
   defaultValues: {
     RetryTimes: number
+    SameChannelRetryTimes: number
+    SameChannelRetryBaseDelayMs: number
+    SameChannelRetryMaxDelayMs: number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
@@ -136,6 +142,9 @@ function normalizeLineEndings(value: string) {
 
 type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
+  SameChannelRetryTimes: number
+  SameChannelRetryBaseDelayMs: number
+  SameChannelRetryMaxDelayMs: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
@@ -155,6 +164,9 @@ const buildFormDefaults = (
   defaults: RoutingReliabilitySectionProps['defaultValues']
 ): RoutingReliabilityFormInput => ({
   RetryTimes: defaults.RetryTimes ?? 0,
+  SameChannelRetryTimes: defaults.SameChannelRetryTimes ?? 0,
+  SameChannelRetryBaseDelayMs: defaults.SameChannelRetryBaseDelayMs ?? 200,
+  SameChannelRetryMaxDelayMs: defaults.SameChannelRetryMaxDelayMs ?? 2000,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -178,6 +190,9 @@ const normalizeDefaults = (
   defaults: RoutingReliabilitySectionProps['defaultValues']
 ): NormalizedRoutingReliabilityValues => ({
   RetryTimes: defaults.RetryTimes ?? 0,
+  SameChannelRetryTimes: defaults.SameChannelRetryTimes ?? 0,
+  SameChannelRetryBaseDelayMs: defaults.SameChannelRetryBaseDelayMs ?? 200,
+  SameChannelRetryMaxDelayMs: defaults.SameChannelRetryMaxDelayMs ?? 2000,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -203,6 +218,9 @@ const normalizeFormValues = (
   values: RoutingReliabilityFormValues
 ): NormalizedRoutingReliabilityValues => ({
   RetryTimes: values.RetryTimes,
+  SameChannelRetryTimes: values.SameChannelRetryTimes,
+  SameChannelRetryBaseDelayMs: values.SameChannelRetryBaseDelayMs,
+  SameChannelRetryMaxDelayMs: values.SameChannelRetryMaxDelayMs,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
@@ -310,7 +328,81 @@ export function RoutingReliabilitySection({
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Number of times to retry failed requests (0-10)')}
+                      {t(
+                        'Number of channel switches after failure (0-10). Same-channel retries do not consume this budget.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='SameChannelRetryTimes'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Same-channel retry times')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0'
+                        max='5'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Extra attempts on the same channel with exponential backoff for transient errors (network, 429, 502, 503). 0 disables.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='SameChannelRetryBaseDelayMs'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Same-channel base delay (ms)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0'
+                        max='60000'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Initial backoff delay in milliseconds before the first same-channel retry.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='SameChannelRetryMaxDelayMs'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Same-channel max delay (ms)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0'
+                        max='60000'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Maximum exponential backoff delay in milliseconds for same-channel retries.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

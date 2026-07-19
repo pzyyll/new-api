@@ -52,6 +52,9 @@ export default function GeneralSettings(props) {
     'general_setting.custom_currency_exchange_rate': '',
     QuotaPerUnit: '',
     RetryTimes: '',
+    SameChannelRetryTimes: '',
+    SameChannelRetryBaseDelayMs: '',
+    SameChannelRetryMaxDelayMs: '',
     USDExchangeRate: '',
     DisplayTokenStatEnabled: false,
     DefaultCollapseSidebar: false,
@@ -270,6 +273,36 @@ export default function GeneralSettings(props) {
                   initValue={''}
                   placeholder={t('失败重试次数')}
                   onChange={handleFieldChange('RetryTimes')}
+                  showClear
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Input
+                  field={'SameChannelRetryTimes'}
+                  label={t('同渠道重试次数')}
+                  initValue={''}
+                  placeholder={t('同渠道重试次数')}
+                  onChange={handleFieldChange('SameChannelRetryTimes')}
+                  showClear
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Input
+                  field={'SameChannelRetryBaseDelayMs'}
+                  label={t('同渠道退避基准(ms)')}
+                  initValue={''}
+                  placeholder={t('同渠道退避基准(ms)')}
+                  onChange={handleFieldChange('SameChannelRetryBaseDelayMs')}
+                  showClear
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Input
+                  field={'SameChannelRetryMaxDelayMs'}
+                  label={t('同渠道退避上限(ms)')}
+                  initValue={''}
+                  placeholder={t('同渠道退避上限(ms)')}
+                  onChange={handleFieldChange('SameChannelRetryMaxDelayMs')}
                   showClear
                 />
               </Col>
