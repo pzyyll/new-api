@@ -75,6 +75,11 @@ const MODELS_SECTIONS = [
           SameChannelRetryTimes: settings.SameChannelRetryTimes,
           SameChannelRetryBaseDelayMs: settings.SameChannelRetryBaseDelayMs,
           SameChannelRetryMaxDelayMs: settings.SameChannelRetryMaxDelayMs,
+          TtftRoutingEnabled: settings.TtftRoutingEnabled,
+          TtftRoutingMinSamples: settings.TtftRoutingMinSamples,
+          TtftRoutingMinFactor: settings.TtftRoutingMinFactor,
+          TtftRoutingMaxFactor: settings.TtftRoutingMaxFactor,
+          TtftRoutingRefMs: settings.TtftRoutingRefMs,
           ChannelDisableThreshold: settings.ChannelDisableThreshold,
           AutomaticDisableChannelEnabled:
             settings.AutomaticDisableChannelEnabled,

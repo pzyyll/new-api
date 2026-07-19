@@ -72,6 +72,11 @@ const routingReliabilitySchema = z
     SameChannelRetryTimes: z.coerce.number().min(0).max(5),
     SameChannelRetryBaseDelayMs: z.coerce.number().min(0).max(60000),
     SameChannelRetryMaxDelayMs: z.coerce.number().min(0).max(60000),
+    TtftRoutingEnabled: z.boolean(),
+    TtftRoutingMinSamples: z.coerce.number().int().min(1).max(10000),
+    TtftRoutingMinFactor: z.coerce.number().min(0.1).max(10),
+    TtftRoutingMaxFactor: z.coerce.number().min(0.1).max(10),
+    TtftRoutingRefMs: z.coerce.number().int().min(1).max(600000),
     ChannelDisableThreshold: numericString,
     AutomaticDisableChannelEnabled: z.boolean(),
     AutomaticEnableChannelEnabled: z.boolean(),
@@ -113,6 +118,14 @@ const routingReliabilitySchema = z
         )}`,
       })
     }
+
+    if (values.TtftRoutingMaxFactor < values.TtftRoutingMinFactor) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TtftRoutingMaxFactor'],
+        message: 'Max factor must be greater than or equal to min factor',
+      })
+    }
   })
 
 type RoutingReliabilityFormValues = z.output<typeof routingReliabilitySchema>
@@ -124,6 +137,11 @@ type RoutingReliabilitySectionProps = {
     SameChannelRetryTimes: number
     SameChannelRetryBaseDelayMs: number
     SameChannelRetryMaxDelayMs: number
+    TtftRoutingEnabled: boolean
+    TtftRoutingMinSamples: number
+    TtftRoutingMinFactor: number
+    TtftRoutingMaxFactor: number
+    TtftRoutingRefMs: number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
@@ -145,6 +163,11 @@ type NormalizedRoutingReliabilityValues = {
   SameChannelRetryTimes: number
   SameChannelRetryBaseDelayMs: number
   SameChannelRetryMaxDelayMs: number
+  TtftRoutingEnabled: boolean
+  TtftRoutingMinSamples: number
+  TtftRoutingMinFactor: number
+  TtftRoutingMaxFactor: number
+  TtftRoutingRefMs: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
@@ -167,6 +190,11 @@ const buildFormDefaults = (
   SameChannelRetryTimes: defaults.SameChannelRetryTimes ?? 0,
   SameChannelRetryBaseDelayMs: defaults.SameChannelRetryBaseDelayMs ?? 200,
   SameChannelRetryMaxDelayMs: defaults.SameChannelRetryMaxDelayMs ?? 2000,
+  TtftRoutingEnabled: defaults.TtftRoutingEnabled ?? false,
+  TtftRoutingMinSamples: defaults.TtftRoutingMinSamples ?? 20,
+  TtftRoutingMinFactor: defaults.TtftRoutingMinFactor ?? 0.5,
+  TtftRoutingMaxFactor: defaults.TtftRoutingMaxFactor ?? 2.0,
+  TtftRoutingRefMs: defaults.TtftRoutingRefMs ?? 500,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -193,6 +221,11 @@ const normalizeDefaults = (
   SameChannelRetryTimes: defaults.SameChannelRetryTimes ?? 0,
   SameChannelRetryBaseDelayMs: defaults.SameChannelRetryBaseDelayMs ?? 200,
   SameChannelRetryMaxDelayMs: defaults.SameChannelRetryMaxDelayMs ?? 2000,
+  TtftRoutingEnabled: defaults.TtftRoutingEnabled ?? false,
+  TtftRoutingMinSamples: defaults.TtftRoutingMinSamples ?? 20,
+  TtftRoutingMinFactor: defaults.TtftRoutingMinFactor ?? 0.5,
+  TtftRoutingMaxFactor: defaults.TtftRoutingMaxFactor ?? 2.0,
+  TtftRoutingRefMs: defaults.TtftRoutingRefMs ?? 500,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
@@ -221,6 +254,11 @@ const normalizeFormValues = (
   SameChannelRetryTimes: values.SameChannelRetryTimes,
   SameChannelRetryBaseDelayMs: values.SameChannelRetryBaseDelayMs,
   SameChannelRetryMaxDelayMs: values.SameChannelRetryMaxDelayMs,
+  TtftRoutingEnabled: values.TtftRoutingEnabled,
+  TtftRoutingMinSamples: values.TtftRoutingMinSamples,
+  TtftRoutingMinFactor: values.TtftRoutingMinFactor,
+  TtftRoutingMaxFactor: values.TtftRoutingMaxFactor,
+  TtftRoutingRefMs: values.TtftRoutingRefMs,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
@@ -433,6 +471,144 @@ export function RoutingReliabilitySection({
                             {t('Normalized:')} {autoRetryParsed.normalized}
                           </span>
                         )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+
+          <div className='flex min-w-0 flex-col gap-4'>
+            <div className='flex flex-col gap-1'>
+              <h4 className='text-sm font-medium'>
+                {t('TTFT-weighted routing')}
+              </h4>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Bias same-priority channel selection toward lower first-token latency. Stats are keyed by channel + model name (e.g. gpt-4o).'
+                )}
+              </p>
+            </div>
+            <div className='grid min-w-0 gap-6 xl:grid-cols-[minmax(12rem,24rem)_minmax(0,1fr)]'>
+              <FormField
+                control={form.control}
+                name='TtftRoutingEnabled'
+                render={({ field }) => (
+                  <FormItem>
+                    <SettingsSwitchItem>
+                      <SettingsSwitchContent>
+                        <FormLabel>{t('Enable TTFT routing bias')}</FormLabel>
+                        <FormDescription>
+                          {t(
+                            'When off, only configured channel weights are used within a priority tier.'
+                          )}
+                        </FormDescription>
+                      </SettingsSwitchContent>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </SettingsSwitchItem>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='TtftRoutingMinSamples'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('TTFT min samples')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='1'
+                        max='10000'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Minimum successful stream samples per channel+model before latency can bias weight.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='TtftRoutingRefMs'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('TTFT reference (ms)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='1'
+                        max='600000'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Fallback reference first-token latency when peer median is unavailable.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='TtftRoutingMinFactor'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('TTFT min weight factor')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0.1'
+                        max='10'
+                        step='0.1'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Lower clamp for the latency multiplier (slower channels).'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='TtftRoutingMaxFactor'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('TTFT max weight factor')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min='0.1'
+                        max='10'
+                        step='0.1'
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Upper clamp for the latency multiplier (faster channels).'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
