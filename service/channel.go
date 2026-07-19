@@ -49,6 +49,10 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if err == nil {
 		return false
 	}
+	// Soft failures are transient model/provider quirks; never auto-ban.
+	if IsSoftFailErrorCode(err.GetErrorCode()) {
+		return false
+	}
 	if types.IsChannelError(err) {
 		return true
 	}

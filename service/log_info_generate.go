@@ -106,6 +106,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	}
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	AppendSoftFailAdminInfo(ctx, relayInfo, adminInfo)
 
 	other["admin_info"] = adminInfo
 	if ctx != nil && ctx.Request != nil {

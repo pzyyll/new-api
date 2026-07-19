@@ -37,8 +37,13 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
-	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	if oaiError := responsesResp.GetOpenAIError(); openAIErrorUsable(oaiError) {
+		return nil, service.ApplySoftFailRetryPolicy(c, info, service.NormalizeSoftUpstreamError(types.WithOpenAIError(*oaiError, resp.StatusCode)))
+	}
+
+	if relayconvert.IsEmptyCompletedResponses(&responsesResp) {
+		// Non-stream checks before any client write, so this remains switchable.
+		return nil, service.ApplySoftFailRetryPolicy(c, info, service.NewEmptyCompletedError())
 	}
 
 	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, &responsesResp)
@@ -74,6 +79,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.MarkClientPayloadWrittenContext(c, info)
 	return usage, nil
 }
 
@@ -123,8 +129,8 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			}
 		case "response.failed", "response.error":
 			if streamResp.Response != nil {
-				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+				if oaiErr := streamResp.Response.GetOpenAIError(); openAIErrorUsable(oaiErr) {
+					streamErr = service.NormalizeSoftUpstreamError(types.WithOpenAIError(*oaiErr, http.StatusInternalServerError))
 					break
 				}
 			}
@@ -135,7 +141,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		}
 	}
 	if streamErr != nil {
-		return nil, streamErr
+		return nil, service.ApplySoftFailRetryPolicy(c, info, streamErr)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
@@ -149,6 +155,10 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		}
 	}
 	accumulator.SupplementResponseOutput(finalResponse)
+
+	if relayconvert.IsEmptyCompletedResponses(finalResponse) {
+		return nil, service.ApplySoftFailRetryPolicy(c, info, service.NewEmptyCompletedError())
+	}
 
 	chatResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatOpenAI, finalResponse)
 	if err != nil {
@@ -182,6 +192,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 	}
 
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.MarkClientPayloadWrittenContext(c, info)
 	return usage, nil
 }
 
@@ -203,6 +214,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	sentAssistantRole := false
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -219,6 +231,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 		c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
 		_ = helper.FlushWriter(c)
+		service.MarkClientPayloadWrittenContext(c, info)
 		return true
 	}
 
@@ -228,25 +241,49 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			if len(value.Choices) == 0 && value.Usage == nil {
 				return true
 			}
+			// Skip role-only empty start chunks so empty-completed can still failover.
+			if !service.ChatCompletionsStreamHasClientPayload(&value) {
+				return true
+			}
+			if !sentAssistantRole {
+				if err := helper.ObjectData(c, helper.GenerateStartEmptyResponse(responseId, createAt, info.UpstreamModelName, nil)); err != nil {
+					streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+					return false
+				}
+				sentAssistantRole = true
+			}
 			if err := helper.ObjectData(c, &value); err != nil {
 				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 				return false
 			}
+			service.MarkClientPayloadWrittenContext(c, info)
 			return true
 		case *dto.ChatCompletionsStreamResponse:
 			if value == nil || (len(value.Choices) == 0 && value.Usage == nil) {
 				return true
 			}
+			if !service.ChatCompletionsStreamHasClientPayload(value) {
+				return true
+			}
+			if !sentAssistantRole {
+				if err := helper.ObjectData(c, helper.GenerateStartEmptyResponse(responseId, createAt, info.UpstreamModelName, nil)); err != nil {
+					streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+					return false
+				}
+				sentAssistantRole = true
+			}
 			if err := helper.ObjectData(c, value); err != nil {
 				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 				return false
 			}
+			service.MarkClientPayloadWrittenContext(c, info)
 			return true
 		case dto.ClaudeResponse:
 			if err := helper.ClaudeData(c, value); err != nil {
 				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 				return false
 			}
+			service.MarkClientPayloadWrittenContext(c, info)
 			return true
 		case *dto.ClaudeResponse:
 			if value == nil {
@@ -256,6 +293,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 				return false
 			}
+			service.MarkClientPayloadWrittenContext(c, info)
 			return true
 		case dto.GeminiChatResponse:
 			return sendGeminiResponse(&value)
@@ -282,8 +320,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
 			if streamResp.Response != nil {
-				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
-					streamErr = types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)
+				if oaiErr := streamResp.Response.GetOpenAIError(); openAIErrorUsable(oaiErr) {
+					streamErr = service.ApplySoftFailRetryPolicy(c, info, service.NormalizeSoftUpstreamError(types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)))
 					sr.Stop(streamErr)
 					return
 				}
@@ -291,6 +329,20 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResp.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 			sr.Stop(streamErr)
 			return
+		}
+
+		// Intercept empty completed before converting/writing terminal chunks so
+		// zero-write attempts can still switch channels.
+		// Note: many providers send usage-only completed events without re-embedding
+		// output; if we already flushed content/tools, do not reclassify as empty.
+		if streamResp.Type == "response.completed" || streamResp.Type == "response.done" {
+			if streamResp.Response != nil &&
+				relayconvert.IsEmptyCompletedResponses(streamResp.Response) &&
+				!service.IsClientPayloadWritten(c, info) {
+				streamErr = service.ApplySoftFailRetryPolicy(c, info, service.NewEmptyCompletedError())
+				sr.Stop(streamErr)
+				return
+			}
 		}
 
 		results, err := relayconvert.ConvertStreamResponseChunk(c, info, state, &streamResp)
@@ -308,7 +360,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	})
 
 	if streamErr != nil {
-		return nil, streamErr
+		return nil, service.ApplySoftFailRetryPolicy(c, info, streamErr)
 	}
 
 	usage := state.Usage()
@@ -339,4 +391,19 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		helper.Done(c)
 	}
 	return usage, nil
+}
+
+// openAIErrorUsable reports whether an upstream OpenAI error object has enough
+// signal to surface (message, code, or type). Type-only empty objects are ignored.
+func openAIErrorUsable(err *types.OpenAIError) bool {
+	if err == nil {
+		return false
+	}
+	if strings.TrimSpace(err.Message) != "" {
+		return true
+	}
+	if err.Code != nil && fmt.Sprintf("%v", err.Code) != "" && fmt.Sprintf("%v", err.Code) != "<nil>" {
+		return true
+	}
+	return strings.TrimSpace(err.Type) != ""
 }

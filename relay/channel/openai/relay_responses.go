@@ -12,6 +12,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/service/relayconvert"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -30,8 +31,12 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
-	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	if oaiError := responsesResponse.GetOpenAIError(); openAIErrorUsable(oaiError) {
+		return nil, service.ApplySoftFailRetryPolicy(c, info, service.NormalizeSoftUpstreamError(types.WithOpenAIError(*oaiError, resp.StatusCode)))
+	}
+
+	if relayconvert.IsEmptyCompletedResponses(&responsesResponse) {
+		return nil, service.ApplySoftFailRetryPolicy(c, info, service.NewEmptyCompletedError())
 	}
 
 	if responsesResponse.HasImageGenerationCall() {
@@ -42,6 +47,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.MarkClientPayloadWrittenContext(c, info)
 
 	// compute usage
 	usage := dto.Usage{}
@@ -79,8 +85,31 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 
 	var usage = &dto.Usage{}
 	var responseTextBuilder strings.Builder
+	var streamErr *types.NewAPIError
+	// Buffer lifecycle-only frames so empty/capacity soft fails can still zero-write retry.
+	var lifecycleBuf []string
+
+	flushLifecycle := func() {
+		if len(lifecycleBuf) == 0 {
+			return
+		}
+		for _, raw := range lifecycleBuf {
+			var buffered dto.ResponsesStreamResponse
+			if err := common.UnmarshalJsonStr(raw, &buffered); err != nil {
+				continue
+			}
+			sendResponsesStreamData(c, buffered, raw)
+		}
+		lifecycleBuf = nil
+		// Once lifecycle frames are flushed the client stream is committed.
+		service.MarkClientPayloadWrittenContext(c, info)
+	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if streamErr != nil {
+			sr.Stop(streamErr)
+			return
+		}
 
 		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
@@ -89,9 +118,45 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
+
+		if streamResponse.Type == "response.error" || streamResponse.Type == "response.failed" {
+			if streamResponse.Response != nil {
+				if oaiErr := streamResponse.Response.GetOpenAIError(); openAIErrorUsable(oaiErr) {
+					streamErr = service.ApplySoftFailRetryPolicy(c, info, service.NormalizeSoftUpstreamError(types.WithOpenAIError(*oaiErr, http.StatusInternalServerError)))
+					sr.Stop(streamErr)
+					return
+				}
+			}
+			streamErr = types.NewOpenAIError(fmt.Errorf("responses stream error: %s", streamResponse.Type), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			sr.Stop(streamErr)
+			return
+		}
+
+		if streamResponse.Type == "response.completed" || streamResponse.Type == "response.done" {
+			// Usage-only completed frames are common after deltas; only treat as empty
+			// when no client payload has been flushed yet.
+			if streamResponse.Response != nil &&
+				relayconvert.IsEmptyCompletedResponses(streamResponse.Response) &&
+				!service.IsClientPayloadWritten(c, info) {
+				// Drop buffered lifecycle frames so zero-write failover remains possible.
+				lifecycleBuf = nil
+				streamErr = service.ApplySoftFailRetryPolicy(c, info, service.NewEmptyCompletedError())
+				sr.Stop(streamErr)
+				return
+			}
+		}
+
 		switch streamResponse.Type {
-		case "response.completed":
+		case "response.created", "response.in_progress":
+			lifecycleBuf = append(lifecycleBuf, data)
+			return
+		}
+
+		flushLifecycle()
+		sendResponsesStreamData(c, streamResponse, data)
+		service.MarkClientPayloadWrittenContext(c, info)
+		switch streamResponse.Type {
+		case "response.completed", "response.done":
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
 					if streamResponse.Response.Usage.InputTokens != 0 {
@@ -131,6 +196,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			}
 		}
 	})
+
+	if streamErr != nil {
+		return nil, service.ApplySoftFailRetryPolicy(c, info, streamErr)
+	}
 
 	if usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量

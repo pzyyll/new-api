@@ -714,6 +714,10 @@ func RecordChannelAffinity(c *gin.Context, channelID int) {
 	if channelID <= 0 {
 		return
 	}
+	// Soft failures (empty completed / capacity) must never refresh sticky binding.
+	if IsChannelAffinityUnusable(c) {
+		return
+	}
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil || !setting.Enabled {
 		return

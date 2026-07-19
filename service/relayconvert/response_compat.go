@@ -124,6 +124,14 @@ func ExtractReasoningTextFromResponses(resp *dto.OpenAIResponsesResponse) string
 	return oairesponses.ExtractReasoningTextFromResponses(resp)
 }
 
+func IsUsableResponsesOutput(resp *dto.OpenAIResponsesResponse) bool {
+	return oairesponses.IsUsableResponsesOutput(resp)
+}
+
+func IsEmptyCompletedResponses(resp *dto.OpenAIResponsesResponse) bool {
+	return oairesponses.IsEmptyCompletedResponses(resp)
+}
+
 func NewResponsesToChatStreamState(model string, includeUsage bool) *ResponsesToChatStreamState {
 	return oairesponses.NewResponsesToChatStreamState(model, includeUsage)
 }

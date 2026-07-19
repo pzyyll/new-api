@@ -352,7 +352,9 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if openaiErr == nil {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	softFail := service.IsSoftFailErrorCode(openaiErr.GetErrorCode())
+	// Soft fails must override affinity SkipRetryOnFailure so sticky sessions can switch.
+	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) && !softFail {
 		return false
 	}
 	if types.IsChannelError(openaiErr) {
@@ -361,11 +363,18 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
+	// Committed client streams cannot switch channels mid-response.
+	if softFail && service.IsClientPayloadWritten(c, nil) {
+		return false
+	}
 	if retryTimes <= 0 {
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
+	}
+	if softFail {
+		return true
 	}
 	code := openaiErr.StatusCode
 	if code >= 200 && code < 300 {
@@ -386,19 +395,29 @@ func shouldSameChannelRetry(c *gin.Context, openaiErr *types.NewAPIError) bool {
 	if openaiErr == nil {
 		return false
 	}
-	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
+	errorCode := openaiErr.GetErrorCode()
+	// Empty completed prefers another channel; capacity may recover on the same one.
+	if errorCode == types.ErrorCodeEmptyResponse {
+		return false
+	}
+	softFail := service.IsSoftFailErrorCode(errorCode)
+	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) && !softFail {
 		return false
 	}
 	if types.IsSkipRetryError(openaiErr) {
 		return false
 	}
-	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
+	if operation_setting.IsAlwaysSkipRetryCode(errorCode) {
 		return false
 	}
 	// Upstream request transport failures are often wrapped as HTTP 500 with
 	// ErrorCodeDoRequestFailed; treat them as same-channel transient errors.
-	if openaiErr.GetErrorCode() == types.ErrorCodeDoRequestFailed {
+	if errorCode == types.ErrorCodeDoRequestFailed {
 		return true
+	}
+	if errorCode == types.ErrorCodeUpstreamCapacity {
+		// Same-channel backoff is only safe before any client payload was flushed.
+		return !service.IsClientPayloadWritten(c, nil)
 	}
 	return isSameChannelRetryStatusCode(openaiErr.StatusCode)
 }
@@ -449,6 +468,8 @@ func sleepForSameChannelRetry(c *gin.Context, delay time.Duration) bool {
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError, responseBody string) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
+	// Soft fails clear sticky affinity even when the handler path did not mark it first.
+	service.ApplySoftFailFromError(c, nil, err)
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
@@ -483,6 +504,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		service.AppendSoftFailAdminInfo(c, nil, adminInfo)
 		other["admin_info"] = adminInfo
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {

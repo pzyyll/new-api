@@ -125,6 +125,16 @@ type RelayInfo struct {
 	RelayFormat           types.RelayFormat
 	SendResponseCount     int
 	ReceivedResponseCount int
+	// ClientPayloadWritten is true after assistant payload (text/reasoning/tool
+	// chunks or non-stream body) has been flushed to the client for this attempt.
+	// Do not use ReceivedResponseCount as a client-commit proxy.
+	ClientPayloadWritten bool
+	// EmptyCompleted marks Responses status=completed with no usable output.
+	EmptyCompleted bool
+	// AffinityUnusable blocks channel-affinity record for this request after a soft fail.
+	AffinityUnusable bool
+	// SoftFailReason is an admin/log enum such as empty_completed or upstream_capacity.
+	SoftFailReason string
 	FinalPreConsumedQuota int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
@@ -681,6 +691,15 @@ func (info *RelayInfo) SetFirstResponseTime() {
 
 func (info *RelayInfo) HasSendResponse() bool {
 	return info.FirstResponseTime.After(info.StartTime)
+}
+
+// CanSoftFailRetry reports whether a soft failure may still switch channels
+// in-request (soft-fail marked and no assistant payload flushed yet).
+func (info *RelayInfo) CanSoftFailRetry() bool {
+	if info == nil {
+		return false
+	}
+	return info.AffinityUnusable && !info.ClientPayloadWritten
 }
 
 // ResetResponseBodyForLog clears any captured upstream response body for the

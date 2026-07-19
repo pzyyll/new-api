@@ -122,6 +122,20 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 	require.Equal(t, message, newAPIError.Error())
 }
 
+func TestRelayErrorHandlerNormalizesCapacityNullCode(t *testing.T) {
+	body := `{"error":{"message":"The model is currently at capacity due to high demand. Please try again in a few minutes, or use a higher service tier for priority processing","type":"upstream_error","code":null}}`
+	resp := &http.Response{
+		StatusCode: http.StatusInternalServerError,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	require.NotNil(t, newAPIError)
+	require.Equal(t, types.ErrorCodeUpstreamCapacity, newAPIError.GetErrorCode())
+	require.Equal(t, http.StatusServiceUnavailable, newAPIError.StatusCode)
+	require.Contains(t, newAPIError.Error(), "at capacity")
+}
+
 func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	withDebugEnabled(t, true)
 

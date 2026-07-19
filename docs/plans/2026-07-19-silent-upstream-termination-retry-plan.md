@@ -115,6 +115,8 @@ upstream attempt ends
 
 ### Task 3: Capacity / null-code message normalization
 
+**Status:** Implemented in `docs/plans/2026-07-19-empty-completed-affinity-failover-plan.md` (Tasks 2/5/6). Hang detection remains in this plan.
+
 **Outcome:** Messages like “model is currently at capacity… try again” retry as transient overload even when `code` is null.
 
 **Files:**
@@ -125,14 +127,14 @@ upstream attempt ends
 
 **Steps:**
 
-- [ ] Keyword list (lowercase match), phase 1 fixed constants, e.g.:
-  - `at capacity`, `high demand`, `overloaded`, `try again`, `temporarily unavailable`, `server is busy`
-- [ ] When OpenAI error code is null/empty/`null`/`unknown_error` **or** status is 500/503/429, and message matches → classify as **transient capacity**
-- [ ] Map classification to:
+- [x] Keyword list (lowercase match), phase 1 fixed constants, e.g.:
+  - `at capacity`, `high demand`, `overloaded`, `temporarily unavailable`, `server is busy`, `priority processing`
+- [x] When OpenAI error code is null/empty/`null`/`unknown_error` **or** status is 500/503/429, and message matches → classify as **transient capacity**
+- [x] Map classification to:
   - internal `ErrorCode` e.g. `upstream_capacity` (new) **or** keep status 503
   - `shouldSameChannelRetry` true
   - `shouldRetry` true (status 503 or explicit branch)
-- [ ] Do not disable channel on capacity (ensure not in auto-disable keywords/status)
+- [x] Do not disable channel on capacity (ensure not in auto-disable keywords/status)
 
 **Validation:**
 

@@ -74,6 +74,7 @@ const (
 	ErrorCodeBadResponse            ErrorCode = "bad_response"
 	ErrorCodeBadResponseBody        ErrorCode = "bad_response_body"
 	ErrorCodeEmptyResponse          ErrorCode = "empty_response"
+	ErrorCodeUpstreamCapacity       ErrorCode = "upstream_capacity"
 	ErrorCodeAwsInvokeError         ErrorCode = "aws_invoke_error"
 	ErrorCodeModelNotFound          ErrorCode = "model_not_found"
 	ErrorCodePromptBlocked          ErrorCode = "prompt_blocked"
@@ -376,6 +377,16 @@ func IsSkipRetryError(err *NewAPIError) bool {
 	}
 
 	return err.skipRetry
+}
+
+// MarkSkipRetry prevents controller same-request channel retries for this error.
+// Used when client payload was already flushed (committed stream).
+func MarkSkipRetry(err *NewAPIError) *NewAPIError {
+	if err == nil {
+		return nil
+	}
+	err.skipRetry = true
+	return err
 }
 
 func ErrOptionWithSkipRetry() NewAPIErrorOptions {

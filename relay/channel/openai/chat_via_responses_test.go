@@ -178,3 +178,175 @@ func requireOrderedSubstrings(t *testing.T, s string, parts ...string) {
 		offset += idx + len(part)
 	}
 }
+
+func TestOaiResponsesToChatHandlerEmptyCompleted(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	body := `{"id":"resp_empty","model":"gpt-test","status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"thinking only"}]}],"usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}`
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, false)
+	resp.Header.Set("Content-Type", "application/json")
+
+	usage, err := OaiResponsesToChatHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeEmptyResponse, err.GetErrorCode())
+	require.Equal(t, http.StatusServiceUnavailable, err.StatusCode)
+	require.True(t, info.EmptyCompleted)
+	require.True(t, info.AffinityUnusable)
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestOaiResponsesToChatBufferedStreamHandlerEmptyCompleted(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.completed","response":{"id":"resp_empty","model":"gpt-test","status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"thinking only"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, false)
+	usage, err := OaiResponsesToChatBufferedStreamHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeEmptyResponse, err.GetErrorCode())
+	require.Equal(t, http.StatusServiceUnavailable, err.StatusCode)
+	require.True(t, info.EmptyCompleted)
+	require.True(t, info.AffinityUnusable)
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestOaiResponsesToChatStreamHandlerEmptyCompletedZeroWrite(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.completed","response":{"id":"resp_empty","model":"gpt-test","status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"thinking only"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeEmptyResponse, err.GetErrorCode())
+	require.Equal(t, http.StatusServiceUnavailable, err.StatusCode)
+	require.True(t, info.EmptyCompleted)
+	require.True(t, info.AffinityUnusable)
+	require.False(t, info.ClientPayloadWritten)
+	// Headers may be set for SSE, but no assistant payload should be committed.
+	require.NotContains(t, recorder.Body.String(), `"content"`)
+	require.NotContains(t, recorder.Body.String(), `thinking only`)
+}
+
+func TestOaiResponsesToChatStreamHandlerEmptyCompletedAfterCreated(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	// Real Grok-like sequence: created emits role-only start which must NOT commit the stream.
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_empty","model":"gpt-test","created_at":1710000000}}`,
+		`data: {"type":"response.completed","response":{"id":"resp_empty","model":"gpt-test","status":"completed","output":[{"type":"reasoning","content":[{"type":"reasoning_text","text":"thinking only"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeEmptyResponse, err.GetErrorCode())
+	require.False(t, info.ClientPayloadWritten)
+	require.False(t, types.IsSkipRetryError(err))
+	require.NotContains(t, recorder.Body.String(), `thinking only`)
+}
+
+func TestOaiResponsesToChatStreamHandlerCapacityAfterReasoningSkipsRetry(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.created","response":{"id":"resp_1","model":"gpt-test","created_at":1710000000}}`,
+		`data: {"type":"response.reasoning_summary_text.delta","delta":"planning search"}`,
+		`data: {"type":"response.failed","response":{"error":{"message":"The model is currently at capacity due to high demand. Please use priority processing","type":"upstream_error","code":null}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
+	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeUpstreamCapacity, err.GetErrorCode())
+	require.True(t, info.ClientPayloadWritten)
+	require.True(t, types.IsSkipRetryError(err))
+	require.Contains(t, recorder.Body.String(), `planning search`)
+}
+
+func TestOaiResponsesToChatStreamHandlerCapacityFailedEvent(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.failed","response":{"error":{"message":"The model is currently at capacity due to high demand. Please use priority processing","type":"upstream_error","code":null}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, _, resp, info := newResponsesChatTestContext(t, body, true)
+	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeUpstreamCapacity, err.GetErrorCode())
+	require.Equal(t, http.StatusServiceUnavailable, err.StatusCode)
+	require.False(t, types.IsSkipRetryError(err))
+	require.False(t, info.ClientPayloadWritten)
+}
+
+func TestOaiResponsesToChatStreamHandlerCapacityNullCodeWithoutType(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	oldTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
+
+	body := strings.Join([]string{
+		`data: {"type":"response.failed","response":{"error":{"message":"The model is currently at capacity due to high demand","code":null}}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	c, _, resp, info := newResponsesChatTestContext(t, body, true)
+	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.Nil(t, usage)
+	require.NotNil(t, err)
+	require.Equal(t, types.ErrorCodeUpstreamCapacity, err.GetErrorCode())
+	_ = info
+}

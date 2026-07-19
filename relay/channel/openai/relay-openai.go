@@ -122,12 +122,25 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
+	var streamErr *types.NewAPIError
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+		if streamErr != nil {
+			sr.Stop(streamErr)
+			return
+		}
+		// Detect OpenAI-style error objects in SSE before forwarding (capacity/null-code).
+		if softErr := softFailFromChatStreamData(data); softErr != nil {
+			streamErr = service.ApplySoftFailRetryPolicy(c, info, softErr)
+			sr.Stop(streamErr)
+			return
+		}
 		if lastStreamData != "" {
 			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
 				common.SysLog("error handling stream format: " + err.Error())
 				sr.Error(err)
+			} else if chatStreamDataHasClientPayload(lastStreamData) {
+				service.MarkClientPayloadWrittenContext(c, info)
 			}
 		}
 		if len(data) > 0 {
@@ -143,6 +156,10 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 			}
 		}
 	})
+
+	if streamErr != nil {
+		return nil, service.ApplySoftFailRetryPolicy(c, info, streamErr)
+	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {
@@ -218,7 +235,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	}
 
 	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+		return nil, service.NormalizeSoftUpstreamError(types.WithOpenAIError(*oaiError, resp.StatusCode))
 	}
 
 	for _, choice := range simpleResponse.Choices {
@@ -296,4 +313,30 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	service.IOCopyBytesGracefully(c, resp, responseBody)
 
 	return &simpleResponse.Usage, nil
+}
+
+// softFailFromChatStreamData detects OpenAI-style error objects embedded in chat SSE payloads.
+func softFailFromChatStreamData(data string) *types.NewAPIError {
+	if strings.TrimSpace(data) == "" {
+		return nil
+	}
+	var envelope struct {
+		Error *types.OpenAIError `json:"error"`
+	}
+	if err := common.UnmarshalJsonStr(data, &envelope); err != nil || envelope.Error == nil {
+		return nil
+	}
+	if !openAIErrorUsable(envelope.Error) {
+		return nil
+	}
+	return service.NormalizeSoftUpstreamError(types.WithOpenAIError(*envelope.Error, http.StatusInternalServerError))
+}
+
+// chatStreamDataHasClientPayload reports whether a raw chat SSE chunk carries assistant payload.
+func chatStreamDataHasClientPayload(data string) bool {
+	var chunk dto.ChatCompletionsStreamResponse
+	if err := common.UnmarshalJsonStr(data, &chunk); err != nil {
+		return false
+	}
+	return service.ChatCompletionsStreamHasClientPayload(&chunk)
 }
