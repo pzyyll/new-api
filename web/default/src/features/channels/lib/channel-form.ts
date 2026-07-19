@@ -740,6 +740,7 @@ export function transformFormDataToUpdatePayload(
   payload.status_code_mapping = formData.status_code_mapping || ''
   payload.param_override = formData.param_override || ''
   payload.header_override = formData.header_override || ''
+  payload.user_agent = formData.user_agent || ''
 
   return payload
 }

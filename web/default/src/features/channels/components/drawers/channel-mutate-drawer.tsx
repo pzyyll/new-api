@@ -731,6 +731,7 @@ export function ChannelMutateDrawer({
   const currentAdvancedCustom = form.watch('advanced_custom')
   const currentPriority = form.watch('priority')
   const currentWeight = form.watch('weight')
+  const currentUserAgent = form.watch('user_agent')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
   const currentTag = form.watch('tag')
@@ -993,6 +994,7 @@ export function ChannelMutateDrawer({
   const routingStrategyConfigured = Boolean(
     currentPriority ||
     currentWeight ||
+    currentUserAgent?.trim() ||
     currentTestModel?.trim() ||
     (currentAutoBan ?? 1) !== 1
   )
@@ -3664,6 +3666,30 @@ export function ChannelMutateDrawer({
 
                             <FormField
                               control={form.control}
+                              name='user_agent'
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    {t('User-Agent Filter')}
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      placeholder={t(
+                                        FIELD_PLACEHOLDERS.USER_AGENT
+                                      )}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    {t(FIELD_DESCRIPTIONS.USER_AGENT)}
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+
+                            <FormField
+                              control={form.control}
                               name='test_model'
                               render={({ field }) => (
                                 <FormItem>
@@ -3764,30 +3790,6 @@ export function ChannelMutateDrawer({
                                 )}
                               />
                             </div>
-
-                            <FormField
-                              control={form.control}
-                              name='user_agent'
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>
-                                    {t('User-Agent Filter')}
-                                  </FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      placeholder={t(
-                                        FIELD_PLACEHOLDERS.USER_AGENT
-                                      )}
-                                      {...field}
-                                    />
-                                  </FormControl>
-                                  <FormDescription>
-                                    {t(FIELD_DESCRIPTIONS.USER_AGENT)}
-                                  </FormDescription>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
                           </div>
 
                           <div
