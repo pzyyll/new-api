@@ -23,6 +23,7 @@ tiktoken_cache
 .claude
 .sisyphus
 .opencode
+.pi
 
 .eslintcache
 .gocache
