@@ -153,7 +153,6 @@ func GetLogsSelfStat(c *gin.Context) {
 	})
 	return
 }
-
 // GetLogRequestDetail returns request/response bodies for a request_id (admin).
 // Bodies are read from disk; legacy DB columns are used as a fallback.
 func GetLogRequestDetail(c *gin.Context) {
