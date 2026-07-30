@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 // SoftFailKind is the soft-failure class derived from upstream error payloads.

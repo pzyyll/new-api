@@ -425,7 +425,7 @@ func shouldSameChannelRetry(c *gin.Context, openaiErr *types.NewAPIError) bool {
 	return isSameChannelRetryStatusCode(openaiErr.StatusCode)
 }
 
-func shouldSameChannelRetryTask(c *gin.Context, taskErr *dto.TaskError) bool {
+func shouldSameChannelRetryTask(c *gin.Context, taskErr *taskdto.TaskError) bool {
 	if taskErr == nil || taskErr.LocalError {
 		return false
 	}

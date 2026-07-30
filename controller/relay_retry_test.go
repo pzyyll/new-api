@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/dto"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,10 +35,10 @@ func TestShouldSameChannelRetryIncludesDoRequestFailed(t *testing.T) {
 	upstream500 := types.NewOpenAIError(errors.New("boom"), types.ErrorCodeBadResponseStatusCode, http.StatusInternalServerError)
 	require.False(t, shouldSameChannelRetry(nil, upstream500))
 
-	taskTransport := &dto.TaskError{Code: string(types.ErrorCodeDoRequestFailed), StatusCode: http.StatusInternalServerError}
+	taskTransport := &taskdto.TaskError{Code: string(types.ErrorCodeDoRequestFailed), StatusCode: http.StatusInternalServerError}
 	require.True(t, shouldSameChannelRetryTask(nil, taskTransport))
 
-	taskUpstream500 := &dto.TaskError{Code: "upstream_error", StatusCode: http.StatusInternalServerError}
+	taskUpstream500 := &taskdto.TaskError{Code: "upstream_error", StatusCode: http.StatusInternalServerError}
 	require.False(t, shouldSameChannelRetryTask(nil, taskUpstream500))
 }
 

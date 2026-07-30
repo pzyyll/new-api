@@ -5,7 +5,7 @@ package oairesponses
 import (
 	"strings"
 
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
 // IsUsableResponsesOutput reports whether a Responses payload contains client-usable
