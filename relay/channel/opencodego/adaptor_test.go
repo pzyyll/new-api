@@ -429,6 +429,36 @@ func TestDoResponse_AnthropicSetsFinalRequestRelayFormat(t *testing.T) {
 	assert.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
 }
 
+func TestFilterInferenceCostBody_StripsInferenceCostLines(t *testing.T) {
+	input := strings.Join([]string{
+		`data: {"id":"chatcmpl-1","choices":[{"delta":{"content":"hi"}}]}`,
+		`data: {"id":"chatcmpl-1","choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"prompt_tokens_details":{"cached_tokens":5}}}`,
+		`data: {"choices":[],"x-opencode-type":"inference-cost","cost":"0.001"}`,
+	}, "\n") + "\n"
+
+	filtered := filterInferenceCostBody(io.NopCloser(strings.NewReader(input)))
+	defer filtered.Close()
+
+	got, err := io.ReadAll(filtered)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	assert.Contains(t, gotStr, `prompt_tokens_details`)
+	assert.Contains(t, gotStr, `cached_tokens`)
+	assert.NotContains(t, gotStr, `x-opencode-type`)
+	assert.NotContains(t, gotStr, `inference-cost`)
+}
+
+func TestFilterInferenceCostBody_PassThroughNormalLines(t *testing.T) {
+	input := "data: {\"id\":\"1\"}\ndata: [DONE]\n"
+	filtered := filterInferenceCostBody(io.NopCloser(strings.NewReader(input)))
+	defer filtered.Close()
+
+	got, err := io.ReadAll(filtered)
+	require.NoError(t, err)
+	assert.Equal(t, input, string(got))
+}
+
 func TestGetModelListAndChannelName(t *testing.T) {
 	adaptor := &Adaptor{}
 	assert.Equal(t, ChannelName, adaptor.GetChannelName())

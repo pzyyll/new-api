@@ -4,10 +4,12 @@
 package opencodego
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -195,10 +197,39 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	model := getUpstreamModelName(info, info.OriginModelName)
+
+	// Filter out upstream opencodego inference-cost SSE lines before the
+	// standard handler sees them. These trailing meta-messages have no usage
+	// field and would shadow the real final usage chunk, causing cached-token
+	// counts and other usage details to be lost.
+	resp.Body = filterInferenceCostBody(resp.Body)
+
 	if isAnthropicProtocolModel(model) {
 		return (&claude.Adaptor{}).DoResponse(c, resp, info)
 	}
 	return (&openai.Adaptor{}).DoResponse(c, resp, info)
+}
+
+// filterInferenceCostBody returns a ReadCloser that strips SSE data lines
+// whose JSON payload contains "x-opencode-type" (e.g. the upstream
+// inference-cost meta-message). Other lines pass through unchanged.
+func filterInferenceCostBody(rc io.ReadCloser) io.ReadCloser {
+	pr, pw := io.Pipe()
+	go func() {
+		defer rc.Close()
+		defer pw.Close()
+		scanner := bufio.NewScanner(rc)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, `"x-opencode-type"`) {
+				continue
+			}
+			if _, err := io.WriteString(pw, line+"\n"); err != nil {
+				return
+			}
+		}
+	}()
+	return pr
 }
 
 func (a *Adaptor) GetModelList() []string {
