@@ -4,6 +4,7 @@
 package opencodego
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +12,11 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/setting/model_setting"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -75,6 +77,30 @@ func TestGetRequestURL_OpenAIProtocolAndUnknown(t *testing.T) {
 	}
 }
 
+func TestGetRequestURL_ResponsesProtocolModels(t *testing.T) {
+	adaptor := &Adaptor{}
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-luna-high", "gpt-5.6-luna-low"} {
+		t.Run(model, func(t *testing.T) {
+			url, err := adaptor.GetRequestURL(testRelayInfo(model))
+			require.NoError(t, err)
+			assert.Equal(t, testBaseURL+"/v1/responses", url)
+		})
+	}
+}
+
+func TestGetRequestURL_ResponsesRelayModeWins(t *testing.T) {
+	adaptor := &Adaptor{}
+	for _, model := range []string{"glm-5.2", "unknown-model-xyz"} {
+		t.Run(model, func(t *testing.T) {
+			info := testRelayInfo(model)
+			info.RelayMode = relayconstant.RelayModeResponses
+			url, err := adaptor.GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, testBaseURL+"/v1/responses", url)
+		})
+	}
+}
+
 func TestGetRequestURL_FallbackToOriginModelName(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := &relaycommon.RelayInfo{
@@ -115,6 +141,80 @@ func TestSetupRequestHeader_OpenAIAuth(t *testing.T) {
 	require.NoError(t, adaptor.SetupRequestHeader(c, &header, info))
 	assert.Equal(t, "Bearer sk-test-key", header.Get("Authorization"))
 	assert.Empty(t, header.Get("x-api-key"))
+}
+
+func TestConvertOpenAIRequest_ResponsesProtocolRejected(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := testRelayInfo("gpt-5.6-luna")
+	c := testGinContext(nil)
+
+	_, err := adaptor.ConvertOpenAIRequest(c, info, &dto.GeneralOpenAIRequest{
+		Model: "gpt-5.6-luna",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Responses API")
+}
+
+func TestConvertClaudeRequest_ResponsesProtocolRejected(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := testRelayInfo("gpt-5.6-luna")
+	c := testGinContext(nil)
+
+	_, err := adaptor.ConvertClaudeRequest(c, info, &dto.ClaudeRequest{
+		Model:    "gpt-5.6-luna",
+		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Responses API")
+}
+
+func TestConvertOpenAIResponsesRequest_Passthrough(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := testRelayInfo("gpt-5.6-luna")
+	c := testGinContext(nil)
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
+		Model: "gpt-5.6-luna",
+		Input: json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`),
+	})
+	require.NoError(t, err)
+	got, ok := converted.(dto.OpenAIResponsesRequest)
+	require.True(t, ok, "expected dto.OpenAIResponsesRequest, got %T", converted)
+	assert.Equal(t, "gpt-5.6-luna", got.Model)
+	assert.Equal(t, json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`), got.Input)
+}
+
+func TestConvertOpenAIResponsesRequest_EffortSuffix(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := testRelayInfo("gpt-5.6-luna")
+	c := testGinContext(nil)
+
+	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
+		Model: "gpt-5.6-luna-high",
+	})
+	require.NoError(t, err)
+	got, ok := converted.(dto.OpenAIResponsesRequest)
+	require.True(t, ok, "expected dto.OpenAIResponsesRequest, got %T", converted)
+	assert.Equal(t, "gpt-5.6-luna", got.Model)
+	require.NotNil(t, got.Reasoning)
+	assert.Equal(t, "high", got.Reasoning.Effort)
+	assert.Equal(t, "high", info.ReasoningEffort)
+}
+
+func TestSessionAffinity_ResponsesPromptCacheKey(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := testRelayInfo("gpt-5.6-luna")
+	c := testGinContext(nil)
+
+	_, err := adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
+		Model:          "gpt-5.6-luna",
+		PromptCacheKey: json.RawMessage(`"cache-key-1"`),
+	})
+	require.NoError(t, err)
+
+	header := http.Header{}
+	require.NoError(t, adaptor.SetupRequestHeader(c, &header, info))
+	assert.Equal(t, "cache-key-1", header.Get("x-opencode-session"))
 }
 
 func TestSessionAffinity_PromptCacheKey(t *testing.T) {
@@ -401,9 +501,6 @@ func TestUnsupportedMethodsReturnNotImplemented(t *testing.T) {
 	_, err = adaptor.ConvertEmbeddingRequest(c, info, dto.EmbeddingRequest{})
 	assert.Error(t, err)
 
-	_, err = adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{})
-	assert.Error(t, err)
-
 	_, err = adaptor.ConvertRerankRequest(c, 0, dto.RerankRequest{})
 	assert.Error(t, err)
 }
@@ -427,6 +524,40 @@ func TestDoResponse_AnthropicSetsFinalRequestRelayFormat(t *testing.T) {
 	_, newAPIErr := adaptor.DoResponse(c, resp, info)
 	require.Nil(t, newAPIErr)
 	assert.Equal(t, types.RelayFormat(types.RelayFormatClaude), info.FinalRequestRelayFormat)
+}
+
+func TestFilterZenCostChunk_StripsPingCostChunk(t *testing.T) {
+	input := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"hi"}`,
+		`data: {"type":"response.completed","response":{"id":"resp_1","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12}}}`,
+		`event: ping`,
+		`data: {"type":"ping","cost":"0"}`,
+	}, "\n") + "\n"
+
+	filtered := filterZenCostChunk(io.NopCloser(strings.NewReader(input)))
+	defer filtered.Close()
+
+	got, err := io.ReadAll(filtered)
+	require.NoError(t, err)
+	gotStr := string(got)
+
+	assert.Contains(t, gotStr, `response.output_text.delta`)
+	assert.Contains(t, gotStr, `response.completed`)
+	assert.NotContains(t, gotStr, `"type":"ping"`)
+}
+
+func TestFilterZenCostChunk_KeepsContentMentioningPing(t *testing.T) {
+	input := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"\"type\":\"ping\" in text"}`,
+		`data: {"type":"response.completed","response":{"id":"resp_1"}}`,
+	}, "\n") + "\n"
+
+	filtered := filterZenCostChunk(io.NopCloser(strings.NewReader(input)))
+	defer filtered.Close()
+
+	got, err := io.ReadAll(filtered)
+	require.NoError(t, err)
+	assert.Equal(t, input, string(got))
 }
 
 func TestFilterInferenceCostBody_StripsInferenceCostLines(t *testing.T) {
@@ -462,5 +593,8 @@ func TestFilterInferenceCostBody_PassThroughNormalLines(t *testing.T) {
 func TestGetModelListAndChannelName(t *testing.T) {
 	adaptor := &Adaptor{}
 	assert.Equal(t, ChannelName, adaptor.GetChannelName())
-	assert.Len(t, adaptor.GetModelList(), 19)
+	assert.Len(t, adaptor.GetModelList(), 22)
+	assert.Contains(t, adaptor.GetModelList(), "gpt-5.6-luna")
+	assert.Contains(t, adaptor.GetModelList(), "grok-4.5")
+	assert.Contains(t, adaptor.GetModelList(), "hy3")
 }

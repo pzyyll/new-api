@@ -1,12 +1,20 @@
-// ABOUTME: OpenCode Go channel constants: model list and Anthropic-protocol set.
-// ABOUTME: Per-model protocol routing decides OpenAI Chat vs Anthropic Messages upstream.
+// ABOUTME: OpenCode Go channel constants: model list and per-model protocol sets.
+// ABOUTME: Protocol routing decides Anthropic Messages vs OpenAI Responses vs Chat upstream.
 
 package opencodego
 
+import (
+	"github.com/QuantumNous/new-api/setting/reasoning"
+)
+
 var ChannelName = "opencodego"
 
-// ModelList is the known opencode-go fixture model IDs (chat only).
+// ModelList is the known opencode-go fixture model IDs.
 var ModelList = []string{
+	// gpt (Responses API)
+	"gpt-5.6-luna",
+	// grok
+	"grok-4.5",
 	// deepseek
 	"deepseek-v4-flash",
 	"deepseek-v4-pro",
@@ -32,6 +40,8 @@ var ModelList = []string{
 	"qwen3.6-plus",
 	"qwen3.7-plus",
 	"qwen3.7-max",
+	// hy3
+	"hy3",
 }
 
 // anthropicProtocolModels are upstream models that must use Anthropic Messages
@@ -46,6 +56,20 @@ var anthropicProtocolModels = map[string]bool{
 	"qwen3.7-max":  true,
 }
 
+// responsesProtocolModels are upstream models that must use the OpenAI Responses
+// API (`/v1/responses` + Bearer auth). All other non-Anthropic models use Chat Completions.
+var responsesProtocolModels = map[string]bool{
+	"gpt-5.6-luna": true,
+}
+
 func isAnthropicProtocolModel(model string) bool {
 	return anthropicProtocolModels[model]
+}
+
+// isResponsesProtocolModel matches with the new-api reasoning-effort suffix
+// convention (e.g. gpt-5.6-luna-high) so URL routing and conversion checks see
+// the base model, mirroring how the openai channel resolves effort variants.
+func isResponsesProtocolModel(model string) bool {
+	baseModel, _, _ := reasoning.TrimEffortSuffixWithSuffixes(model, reasoning.OpenAIEffortSuffixes)
+	return responsesProtocolModels[baseModel]
 }
