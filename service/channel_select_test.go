@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -22,11 +23,13 @@ func TestCacheGetRandomSatisfiedChannelReturnsToEarlierMultiKeyAutoGroup(t *test
 	originalMemoryCacheEnabled := common.MemoryCacheEnabled
 	originalAutoGroups := setting.AutoGroups2JsonString()
 	originalUserUsableGroups := setting.UserUsableGroups2JSONString()
+	originalGroupRatios := ratio_setting.GroupRatio2JSONString()
 	t.Cleanup(func() {
 		model.DB = originalDB
 		common.MemoryCacheEnabled = originalMemoryCacheEnabled
 		require.NoError(t, setting.UpdateAutoGroupsByJsonString(originalAutoGroups))
 		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUserUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalGroupRatios))
 	})
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -35,6 +38,7 @@ func TestCacheGetRandomSatisfiedChannelReturnsToEarlierMultiKeyAutoGroup(t *test
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
 	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["group-a","group-b"]`))
 	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default","group-a":"A","group-b":"B"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"group-a":1,"group-b":1}`))
 
 	common.MemoryCacheEnabled = false
 	highPriority := int64(200)

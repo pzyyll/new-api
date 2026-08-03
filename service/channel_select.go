@@ -9,7 +9,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -71,12 +70,12 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		return channel, selectGroup, err
 	}
 
-	if len(setting.GetAutoGroups()) == 0 {
+	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+	autoGroups := GetRequestAutoGroups(param.Ctx, userGroup)
+	if len(autoGroups) == 0 {
 		return nil, selectGroup, errors.New("auto groups is not enabled")
 	}
 
-	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
-	autoGroups := GetUserAutoGroup(userGroup)
 	startGroupIndex := 0
 	if lastGroupIndex, exists := common.GetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex); exists {
 		if index, ok := lastGroupIndex.(int); ok {
