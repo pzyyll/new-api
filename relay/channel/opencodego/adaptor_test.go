@@ -1,5 +1,5 @@
-// ABOUTME: Tests for OpenCode Go per-model protocol routing and header setup.
-// ABOUTME: Locks dual-protocol auth, session affinity, and conversion delegation.
+// ABOUTME: Tests for OpenCode Go client-driven protocol forwarding and header setup.
+// ABOUTME: Locks Chat/Claude/Responses routing, auth, session affinity, and passthrough conversion.
 
 package opencodego
 
@@ -50,49 +50,51 @@ func testGinContext(headers map[string]string) *gin.Context {
 	return c
 }
 
-func TestGetRequestURL_AnthropicProtocolModels(t *testing.T) {
-	anthropicModels := []string{
-		"minimax-m2.5", "minimax-m2.7", "minimax-m3",
-		"qwen3.5-plus", "qwen3.6-plus", "qwen3.7-plus", "qwen3.7-max",
+func TestGetRequestURL_FollowsClientAPINotModel(t *testing.T) {
+	models := []string{
+		"gpt-5.6-luna", "gpt-5.6-luna-high",
+		"deepseek-v4-flash", "deepseek-v4-pro",
+		"minimax-m3", "qwen3.7-max", "glm-5.2", "unknown-model-xyz",
 	}
 	adaptor := &Adaptor{}
-	for _, model := range anthropicModels {
-		t.Run(model, func(t *testing.T) {
-			url, err := adaptor.GetRequestURL(testRelayInfo(model))
+
+	t.Run("chat", func(t *testing.T) {
+		for _, model := range models {
+			info := testRelayInfo(model)
+			info.RelayFormat = types.RelayFormatOpenAI
+			url, err := adaptor.GetRequestURL(info)
 			require.NoError(t, err)
-			assert.Equal(t, testBaseURL+"/v1/messages", url)
-		})
-	}
+			assert.Equal(t, testBaseURL+"/v1/chat/completions", url, model)
+		}
+	})
+
+	t.Run("claude", func(t *testing.T) {
+		for _, model := range models {
+			info := testRelayInfo(model)
+			info.RelayFormat = types.RelayFormatClaude
+			url, err := adaptor.GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, testBaseURL+"/v1/messages", url, model)
+		}
+	})
+
+	t.Run("responses", func(t *testing.T) {
+		for _, model := range models {
+			info := testRelayInfo(model)
+			info.RelayFormat = types.RelayFormatOpenAIResponses
+			url, err := adaptor.GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, testBaseURL+"/v1/responses", url, model)
+		}
+	})
 }
 
-func TestGetRequestURL_OpenAIProtocolAndUnknown(t *testing.T) {
-	cases := []string{"glm-5.2", "kimi-k2.6", "deepseek-v4-pro", "unknown-model-xyz"}
+func TestGetRequestURL_ResponsesRelayMode(t *testing.T) {
 	adaptor := &Adaptor{}
-	for _, model := range cases {
-		t.Run(model, func(t *testing.T) {
-			url, err := adaptor.GetRequestURL(testRelayInfo(model))
-			require.NoError(t, err)
-			assert.Equal(t, testBaseURL+"/v1/chat/completions", url)
-		})
-	}
-}
-
-func TestGetRequestURL_ResponsesProtocolModels(t *testing.T) {
-	adaptor := &Adaptor{}
-	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-luna-high", "gpt-5.6-luna-low"} {
-		t.Run(model, func(t *testing.T) {
-			url, err := adaptor.GetRequestURL(testRelayInfo(model))
-			require.NoError(t, err)
-			assert.Equal(t, testBaseURL+"/v1/responses", url)
-		})
-	}
-}
-
-func TestGetRequestURL_ResponsesRelayModeWins(t *testing.T) {
-	adaptor := &Adaptor{}
-	for _, model := range []string{"glm-5.2", "unknown-model-xyz"} {
+	for _, model := range []string{"glm-5.2", "deepseek-v4-flash", "unknown-model-xyz"} {
 		t.Run(model, func(t *testing.T) {
 			info := testRelayInfo(model)
+			info.RelayFormat = types.RelayFormatOpenAI
 			info.RelayMode = relayconstant.RelayModeResponses
 			url, err := adaptor.GetRequestURL(info)
 			require.NoError(t, err)
@@ -101,28 +103,32 @@ func TestGetRequestURL_ResponsesRelayModeWins(t *testing.T) {
 	}
 }
 
-func TestGetRequestURL_FallbackToOriginModelName(t *testing.T) {
+func TestGetRequestURL_ResponsesCompact(t *testing.T) {
 	adaptor := &Adaptor{}
-	info := &relaycommon.RelayInfo{
-		OriginModelName: "minimax-m3",
-		ChannelMeta: &relaycommon.ChannelMeta{
-			ChannelBaseUrl: testBaseURL,
-			ApiKey:         "sk-test-key",
-		},
-	}
+	info := testRelayInfo("gpt-5.6-luna")
+	info.RelayMode = relayconstant.RelayModeResponsesCompact
 	url, err := adaptor.GetRequestURL(info)
 	require.NoError(t, err)
-	assert.Equal(t, testBaseURL+"/v1/messages", url)
+	assert.Equal(t, testBaseURL+"/v1/responses/compact", url)
 
-	info.OriginModelName = "glm-5.2"
+	info = testRelayInfo("deepseek-v4-pro")
+	info.RelayFormat = types.RelayFormatOpenAIResponsesCompaction
 	url, err = adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, testBaseURL+"/v1/responses/compact", url)
+}
+
+func TestGetRequestURL_DefaultIsChatCompletions(t *testing.T) {
+	adaptor := &Adaptor{}
+	url, err := adaptor.GetRequestURL(testRelayInfo("minimax-m3"))
 	require.NoError(t, err)
 	assert.Equal(t, testBaseURL+"/v1/chat/completions", url)
 }
 
-func TestSetupRequestHeader_AnthropicAuth(t *testing.T) {
+func TestSetupRequestHeader_ClaudeAuth(t *testing.T) {
 	adaptor := &Adaptor{}
-	info := testRelayInfo("minimax-m3")
+	info := testRelayInfo("glm-5.2")
+	info.RelayFormat = types.RelayFormatClaude
 	c := testGinContext(nil)
 	header := http.Header{}
 
@@ -134,7 +140,8 @@ func TestSetupRequestHeader_AnthropicAuth(t *testing.T) {
 
 func TestSetupRequestHeader_OpenAIAuth(t *testing.T) {
 	adaptor := &Adaptor{}
-	info := testRelayInfo("glm-5.2")
+	info := testRelayInfo("minimax-m3")
+	info.RelayFormat = types.RelayFormatOpenAI
 	c := testGinContext(nil)
 	header := http.Header{}
 
@@ -143,44 +150,58 @@ func TestSetupRequestHeader_OpenAIAuth(t *testing.T) {
 	assert.Empty(t, header.Get("x-api-key"))
 }
 
-func TestConvertOpenAIRequest_ResponsesProtocolRejected(t *testing.T) {
+func TestSetupRequestHeader_ResponsesAuth(t *testing.T) {
 	adaptor := &Adaptor{}
-	info := testRelayInfo("gpt-5.6-luna")
+	info := testRelayInfo("deepseek-v4-flash")
+	info.RelayFormat = types.RelayFormatOpenAIResponses
 	c := testGinContext(nil)
+	header := http.Header{}
 
-	_, err := adaptor.ConvertOpenAIRequest(c, info, &dto.GeneralOpenAIRequest{
-		Model: "gpt-5.6-luna",
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Responses API")
+	require.NoError(t, adaptor.SetupRequestHeader(c, &header, info))
+	assert.Equal(t, "Bearer sk-test-key", header.Get("Authorization"))
+	assert.Empty(t, header.Get("x-api-key"))
 }
 
-func TestConvertClaudeRequest_ResponsesProtocolRejected(t *testing.T) {
+func TestConvertOpenAIRequest_PassthroughAnyModel(t *testing.T) {
 	adaptor := &Adaptor{}
-	info := testRelayInfo("gpt-5.6-luna")
 	c := testGinContext(nil)
+	for _, model := range []string{"gpt-5.6-luna", "minimax-m3", "deepseek-v4-pro"} {
+		info := testRelayInfo(model)
+		req := &dto.GeneralOpenAIRequest{Model: model}
+		converted, err := adaptor.ConvertOpenAIRequest(c, info, req)
+		require.NoError(t, err, model)
+		assert.Same(t, req, converted, model)
+	}
+}
 
-	_, err := adaptor.ConvertClaudeRequest(c, info, &dto.ClaudeRequest{
-		Model:    "gpt-5.6-luna",
-		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Responses API")
+func TestConvertClaudeRequest_PassthroughAnyModel(t *testing.T) {
+	adaptor := &Adaptor{}
+	c := testGinContext(nil)
+	for _, model := range []string{"gpt-5.6-luna", "minimax-m3", "glm-5.2"} {
+		info := testRelayInfo(model)
+		req := &dto.ClaudeRequest{
+			Model:    model,
+			Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
+		}
+		converted, err := adaptor.ConvertClaudeRequest(c, info, req)
+		require.NoError(t, err, model)
+		assert.Same(t, req, converted, model)
+	}
 }
 
 func TestConvertOpenAIResponsesRequest_Passthrough(t *testing.T) {
 	adaptor := &Adaptor{}
-	info := testRelayInfo("gpt-5.6-luna")
+	info := testRelayInfo("deepseek-v4-flash")
 	c := testGinContext(nil)
 
 	converted, err := adaptor.ConvertOpenAIResponsesRequest(c, info, dto.OpenAIResponsesRequest{
-		Model: "gpt-5.6-luna",
+		Model: "deepseek-v4-flash",
 		Input: json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`),
 	})
 	require.NoError(t, err)
 	got, ok := converted.(dto.OpenAIResponsesRequest)
 	require.True(t, ok, "expected dto.OpenAIResponsesRequest, got %T", converted)
-	assert.Equal(t, "gpt-5.6-luna", got.Model)
+	assert.Equal(t, "deepseek-v4-flash", got.Model)
 	assert.Equal(t, json.RawMessage(`[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]`), got.Input)
 }
 
@@ -240,6 +261,7 @@ func TestSessionAffinity_PromptCacheKey(t *testing.T) {
 func TestSessionAffinity_ClaudeMetadataUserID(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := testRelayInfo("minimax-m3")
+	info.RelayFormat = types.RelayFormatClaude
 	c := testGinContext(nil)
 
 	_, err := adaptor.ConvertClaudeRequest(c, info, &dto.ClaudeRequest{
@@ -338,6 +360,7 @@ func TestSessionAffinity_PassThroughClaudeMetadataUserID(t *testing.T) {
 
 	adaptor := &Adaptor{}
 	info := testRelayInfo("minimax-m3")
+	info.RelayFormat = types.RelayFormatClaude
 	c := testGinContext(nil)
 	setRequestBody(t, c, `{"model":"minimax-m3","metadata":{"user_id":"pass-through-user"}}`)
 
@@ -428,62 +451,6 @@ func TestUserAgent_UnsetWhenClientEmpty(t *testing.T) {
 	}
 }
 
-func TestConvertOpenAIRequest_AnthropicDelegatesToClaude(t *testing.T) {
-	adaptor := &Adaptor{}
-	info := testRelayInfo("minimax-m3")
-	c := testGinContext(nil)
-
-	converted, err := adaptor.ConvertOpenAIRequest(c, info, &dto.GeneralOpenAIRequest{
-		Model: "minimax-m3",
-		Messages: []dto.Message{
-			{Role: "user", Content: "hello"},
-		},
-	})
-	require.NoError(t, err)
-	_, ok := converted.(*dto.ClaudeRequest)
-	assert.True(t, ok, "expected *dto.ClaudeRequest, got %T", converted)
-}
-
-func TestConvertOpenAIRequest_OpenAIPassthrough(t *testing.T) {
-	adaptor := &Adaptor{}
-	info := testRelayInfo("glm-5.2")
-	c := testGinContext(nil)
-	req := &dto.GeneralOpenAIRequest{Model: "glm-5.2"}
-
-	converted, err := adaptor.ConvertOpenAIRequest(c, info, req)
-	require.NoError(t, err)
-	assert.Same(t, req, converted)
-}
-
-func TestConvertClaudeRequest_AnthropicPassthrough(t *testing.T) {
-	adaptor := &Adaptor{}
-	info := testRelayInfo("minimax-m3")
-	c := testGinContext(nil)
-	req := &dto.ClaudeRequest{
-		Model:    "minimax-m3",
-		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
-	}
-
-	converted, err := adaptor.ConvertClaudeRequest(c, info, req)
-	require.NoError(t, err)
-	assert.Same(t, req, converted)
-}
-
-func TestConvertClaudeRequest_OpenAIDelegates(t *testing.T) {
-	adaptor := &Adaptor{}
-	info := testRelayInfo("glm-5.2")
-	c := testGinContext(nil)
-
-	converted, err := adaptor.ConvertClaudeRequest(c, info, &dto.ClaudeRequest{
-		Model:    "glm-5.2",
-		Messages: []dto.ClaudeMessage{{Role: "user", Content: "hello"}},
-	})
-	require.NoError(t, err)
-	openAIReq, ok := converted.(*dto.GeneralOpenAIRequest)
-	require.True(t, ok, "expected *dto.GeneralOpenAIRequest, got %T", converted)
-	assert.Equal(t, "glm-5.2", openAIReq.Model)
-}
-
 func TestUnsupportedMethodsReturnNotImplemented(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := testRelayInfo("glm-5.2")
@@ -505,7 +472,7 @@ func TestUnsupportedMethodsReturnNotImplemented(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDoResponse_AnthropicSetsFinalRequestRelayFormat(t *testing.T) {
+func TestDoResponse_ClaudeSetsFinalRequestRelayFormat(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := testRelayInfo("minimax-m3")
 	info.RelayFormat = types.RelayFormatClaude

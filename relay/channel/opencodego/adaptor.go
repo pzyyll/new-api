@@ -1,5 +1,5 @@
-// ABOUTME: OpenCode Go channel adaptor: per-model dual-protocol relay to zen/go.
-// ABOUTME: Routes Anthropic-protocol models to /messages, gpt-5.6-luna to /responses, rest to /chat/completions.
+// ABOUTME: OpenCode Go channel adaptor: forwards Chat, Claude, and Responses as the client sent them.
+// ABOUTME: Upstream path and auth follow RelayFormat/RelayMode; the channel does not convert protocols.
 
 package opencodego
 
@@ -36,18 +36,27 @@ type Adaptor struct {
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {}
 
-func getUpstreamModelName(info *relaycommon.RelayInfo, fallback string) string {
-	if info != nil && info.ChannelMeta != nil && info.UpstreamModelName != "" {
-		return info.UpstreamModelName
-	}
-	return fallback
-}
-
 func isPassThroughEnabled(info *relaycommon.RelayInfo) bool {
 	if model_setting.GetGlobalSettings().PassThroughRequestEnabled {
 		return true
 	}
 	return info != nil && info.ChannelSetting.PassThroughBodyEnabled
+}
+
+func isClaudeClient(info *relaycommon.RelayInfo) bool {
+	return info != nil && info.RelayFormat == types.RelayFormatClaude
+}
+
+func isResponsesClient(info *relaycommon.RelayInfo) bool {
+	if info == nil {
+		return false
+	}
+	if info.RelayMode == relayconstant.RelayModeResponses ||
+		info.RelayMode == relayconstant.RelayModeResponsesCompact {
+		return true
+	}
+	return info.RelayFormat == types.RelayFormatOpenAIResponses ||
+		info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction
 }
 
 // sessionAffinityFromRequestBody extracts OpenAI prompt_cache_key or Claude
@@ -101,19 +110,18 @@ func (a *Adaptor) resolveSessionAffinity(c *gin.Context, info *relaycommon.Relay
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	// Channel base is stored without /v1 (platform convention, e.g.
 	// https://opencode.ai/zen/go); append /v1 here like other OpenAI-style channels.
-	baseURL := info.ChannelBaseUrl
-	model := getUpstreamModelName(info, info.OriginModelName)
-	relayMode := 0
+	baseURL := ""
 	if info != nil {
-		relayMode = info.RelayMode
+		baseURL = info.ChannelBaseUrl
 	}
 	switch {
-	case isAnthropicProtocolModel(model):
-		return fmt.Sprintf("%s/v1/messages", baseURL), nil
-	case isResponsesProtocolModel(model) ||
-		relayMode == relayconstant.RelayModeResponses ||
-		relayMode == relayconstant.RelayModeResponsesCompact:
+	case info != nil && (info.RelayMode == relayconstant.RelayModeResponsesCompact ||
+		info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction):
+		return fmt.Sprintf("%s/v1/responses/compact", baseURL), nil
+	case isResponsesClient(info):
 		return fmt.Sprintf("%s/v1/responses", baseURL), nil
+	case isClaudeClient(info):
+		return fmt.Sprintf("%s/v1/messages", baseURL), nil
 	default:
 		return fmt.Sprintf("%s/v1/chat/completions", baseURL), nil
 	}
@@ -122,8 +130,7 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 
-	model := getUpstreamModelName(info, info.OriginModelName)
-	if isAnthropicProtocolModel(model) {
+	if isClaudeClient(info) {
 		req.Set("x-api-key", info.ApiKey)
 		anthropicVersion := c.Request.Header.Get("anthropic-version")
 		if anthropicVersion == "" {
@@ -153,14 +160,6 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request.PromptCacheKey != "" {
 		a.sessionAffinity = request.PromptCacheKey
 	}
-
-	model := getUpstreamModelName(info, request.Model)
-	if isResponsesProtocolModel(model) {
-		return nil, fmt.Errorf("model %s is served via the Responses API; use POST /v1/responses instead of /v1/chat/completions", model)
-	}
-	if isAnthropicProtocolModel(model) {
-		return (&claude.Adaptor{}).ConvertOpenAIRequest(c, info, request)
-	}
 	return request, nil
 }
 
@@ -174,15 +173,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 			a.sessionAffinity = meta.UserId
 		}
 	}
-
-	model := getUpstreamModelName(info, request.Model)
-	if isResponsesProtocolModel(model) {
-		return nil, fmt.Errorf("model %s is served via the Responses API; use POST /v1/responses instead of /v1/messages", model)
-	}
-	if isAnthropicProtocolModel(model) {
-		return request, nil
-	}
-	return (&openai.Adaptor{}).ConvertClaudeRequest(c, info, request)
+	return request, nil
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
@@ -236,15 +227,13 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
-	model := getUpstreamModelName(info, info.OriginModelName)
-
 	resp.Body = filterInferenceCostBody(resp.Body)
 
-	if isAnthropicProtocolModel(model) {
+	if isClaudeClient(info) {
 		return (&claude.Adaptor{}).DoResponse(c, resp, info)
 	}
 
-	if info != nil && info.RelayMode == relayconstant.RelayModeResponses {
+	if isResponsesClient(info) {
 		resp.Body = filterZenCostChunk(resp.Body)
 	}
 
