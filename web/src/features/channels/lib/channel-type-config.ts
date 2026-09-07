@@ -1,3 +1,5 @@
+// ABOUTME: Defines provider-specific channel editor configuration.
+// ABOUTME: Resolves Sub2API and New API metadata with stable alpha identifiers.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,7 +18,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CHANNEL_TYPES } from '../constants'
+import { CHANNEL_TYPES, CHANNEL_TYPE_SUB2API, CHANNEL_TYPE_NEW_API } from '../constants'
 
 // ============================================================================
 // Channel Type Configuration
@@ -144,9 +146,9 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models exposed by this channel',
     },
   },
-  59: {
-    id: 59,
-    name: CHANNEL_TYPES[59],
+  [CHANNEL_TYPE_SUB2API]: {
+    id: CHANNEL_TYPE_SUB2API,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_SUB2API],
     icon: 'Sub2API',
     hints: {
       baseUrl: 'Sub2API gateway base URL',
@@ -154,9 +156,9 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       models: 'Models fetched from upstream /v1/models',
     },
   },
-  60: {
-    id: 60,
-    name: CHANNEL_TYPES[60],
+  [CHANNEL_TYPE_NEW_API]: {
+    id: CHANNEL_TYPE_NEW_API,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_NEW_API],
     icon: 'NewAPI',
     hints: {
       baseUrl: 'Base URL is required for this channel type',

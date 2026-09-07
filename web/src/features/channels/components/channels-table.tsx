@@ -1,3 +1,5 @@
+// ABOUTME: Renders the channel table and preserves row interaction state.
+// ABOUTME: Uses shared stable channel IDs across sorting and tag expansion.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -327,10 +329,6 @@ export function ChannelsTable() {
     enableRowSelection: batchMode
       ? (row: Row<Channel>) => !isTagAggregateRow(row.original)
       : false,
-    // Stable ids keep row state (selection, expansion, spinner local values)
-    // attached to the channel after priority-driven list reordering.
-    getRowId: (row) =>
-      isTagAggregateRow(row) ? `tag:${row.tag ?? ''}` : String(row.id),
     onSortingChange: handleSortingChange,
     onColumnFiltersChange: handleColumnFiltersChange,
     onPaginationChange,

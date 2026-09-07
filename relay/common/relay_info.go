@@ -15,6 +15,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
+	kitreasoning "github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	hosttypes "github.com/QuantumNous/new-api/types"
@@ -101,25 +102,31 @@ type RelayInfo struct {
 	OriginModelName        string
 	// ClientModelName is the immutable client-requested model for routing stats
 	// (channel+model TTFT). OriginModelName may be rewritten by mapping helpers.
-	ClientModelName       string
-	RequestURLPath        string
-	RequestHeaders        map[string]string
-	ShouldIncludeUsage    bool
-	DisablePing           bool // 是否禁止向下游发送自定义 Ping
-	ClientWs              *websocket.Conn
-	TargetWs              *websocket.Conn
-	InputAudioFormat      string
-	OutputAudioFormat     string
-	RealtimeTools         []dto.RealTimeTool
-	IsFirstRequest        bool
-	AudioUsage            bool
-	ReasoningEffort       string
-	UserSetting           dto.UserSetting
-	UserEmail             string
-	UserQuota             int
-	RelayFormat           types.RelayFormat
-	SendResponseCount     int
-	ReceivedResponseCount int
+	ClientModelName string
+	// BillingModelName never participates in routing or upstream model mapping.
+	BillingModelName    string
+	ReasoningConversion *dto.ReasoningConversionState
+	// Stream converter state is reset before each upstream attempt.
+	ClaudeToChatStreamState any
+	ChatToGeminiStreamState any
+	RequestURLPath          string
+	RequestHeaders          map[string]string
+	ShouldIncludeUsage      bool
+	DisablePing             bool // 是否禁止向下游发送自定义 Ping
+	ClientWs                *websocket.Conn
+	TargetWs                *websocket.Conn
+	InputAudioFormat        string
+	OutputAudioFormat       string
+	RealtimeTools           []dto.RealTimeTool
+	IsFirstRequest          bool
+	AudioUsage              bool
+	ReasoningEffort         string
+	UserSetting             dto.UserSetting
+	UserEmail               string
+	UserQuota               int
+	RelayFormat             types.RelayFormat
+	SendResponseCount       int
+	ReceivedResponseCount   int
 	// ClientPayloadWritten is true after assistant payload (text/reasoning/tool
 	// chunks or non-stream body) has been flushed to the client for this attempt.
 	// Do not use ReceivedResponseCount as a client-commit proxy.
@@ -129,7 +136,7 @@ type RelayInfo struct {
 	// AffinityUnusable blocks channel-affinity record for this request after a soft fail.
 	AffinityUnusable bool
 	// SoftFailReason is an admin/log enum such as empty_completed or upstream_capacity.
-	SoftFailReason string
+	SoftFailReason        string
 	FinalPreConsumedQuota int // 最终预消耗的配额
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
@@ -179,7 +186,7 @@ type RelayInfo struct {
 	PriceData hosttypes.PriceData
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
-	// int32 bound (or NaN fallback) while computing this request's charge.
+	// supported single-request bound (or NaN fallback) while computing this request's charge.
 	// It is surfaced onto the consume/task log's admin_info for auditing.
 	QuotaClamp *common.QuotaClamp
 
@@ -203,6 +210,10 @@ type RelayInfo struct {
 	// convOptions caches the converter settings snapshot (see ConvOptions).
 	convOptions *convmeta.Options
 
+	conversionDiagnostics          []types.ConversionDiagnostic
+	conversionDiagnosticKeys       map[conversionDiagnosticKey]struct{}
+	conversionDiagnosticsTruncated bool
+
 	ThinkingContentInfo
 	TokenCountMeta
 	*ClaudeConvertInfo
@@ -213,6 +224,14 @@ type RelayInfo struct {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.FinalRequestRelayFormat = ""
+	info.RequestConversionChain = nil
+	info.InitRequestConversionChain()
+	// Per-attempt only. Do not clear StreamStatus, conversion diagnostics,
+	// LastError, or billing accumulators — those are request-scoped.
+	info.SendResponseCount = 0
+	info.ClaudeToChatStreamState = nil
+	info.ChatToGeminiStreamState = nil
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -261,6 +280,13 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	// Channel identity feeds the converter options snapshot (e.g.
 	// OpenRouterDialect); drop the cache so a cross-channel retry rebuilds it.
 	info.convOptions = nil
+	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || channelMeta.ChannelSetting.PassThroughBodyEnabled {
+		info.ReasoningEffort = ""
+		info.ReasoningConversion = nil
+	} else {
+		info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
+		info.ReasoningConversion = nil
+	}
 
 	// reset some fields based on channel meta
 	// 重置某些字段，例如模型名称等
@@ -283,6 +309,9 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "IsPlayground: %t, ", info.IsPlayground)
 	fmt.Fprintf(b, "RequestURLPath: %q, ", info.RequestURLPath)
 	fmt.Fprintf(b, "OriginModelName: %q, ", info.OriginModelName)
+	if info.BillingModelName != "" && info.BillingModelName != info.OriginModelName {
+		fmt.Fprintf(b, "BillingModelName: %q, ", info.BillingModelName)
+	}
 	fmt.Fprintf(b, "EstimatePromptTokens: %d, ", info.estimatePromptTokens)
 	fmt.Fprintf(b, "ShouldIncludeUsage: %t, ", info.ShouldIncludeUsage)
 	fmt.Fprintf(b, "DisablePing: %t, ", info.DisablePing)
@@ -463,6 +492,40 @@ func GenRelayInfoOpenAI(c *gin.Context, request dto.Request) *RelayInfo {
 	return info
 }
 
+func reasoningEffortFromRequest(request dto.Request) string {
+	var effort string
+	switch req := request.(type) {
+	case *dto.GeneralOpenAIRequest:
+		if req == nil {
+			return ""
+		}
+		effort = req.ReasoningEffort
+		if strings.TrimSpace(effort) == "" && len(req.Reasoning) > 0 {
+			value := gjson.GetBytes(req.Reasoning, "effort")
+			if value.Type == gjson.String {
+				effort = value.String()
+			}
+		}
+	case *dto.OpenAIResponsesRequest:
+		if req != nil && req.Reasoning != nil {
+			effort = req.Reasoning.Effort
+		}
+	case *dto.ClaudeRequest:
+		if req != nil {
+			effort = req.GetEfforts()
+		}
+	case *dto.GeminiChatRequest:
+		if req != nil && req.GenerationConfig.ThinkingConfig != nil {
+			config := req.GenerationConfig.ThinkingConfig
+			effort = config.ThinkingLevel
+			if effort == "" && config.ThinkingBudget != nil {
+				effort = string(kitreasoning.EffortFromBudget(*config.ThinkingBudget))
+			}
+		}
+	}
+	return strings.TrimSpace(effort)
+}
+
 func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 
 	//channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
@@ -493,8 +556,11 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 	if reqId == "" {
 		reqId = common.NewRequestId()
 	}
+	reasoningEffort := reasoningEffortFromRequest(request)
+	originModelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 	info := &RelayInfo{
-		Request: request,
+		Request:         request,
+		ReasoningEffort: reasoningEffort,
 
 		RequestId:  reqId,
 		UserId:     common.GetContextKeyInt(c, constant.ContextKeyUserId),
@@ -503,7 +569,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		UserQuota:  common.GetContextKeyInt(c, constant.ContextKeyUserQuota),
 		UserEmail:  common.GetContextKeyString(c, constant.ContextKeyUserEmail),
 
-		OriginModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
+		OriginModelName: originModelName,
 		ClientModelName: common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 
 		TokenId:        common.GetContextKeyInt(c, constant.ContextKeyTokenId),
@@ -731,6 +797,18 @@ func (info *RelayInfo) GetOriginModelName() string {
 	return info.OriginModelName
 }
 
+// GetBillingModelName returns the effective pricing identity without changing
+// either the client-visible model or the model sent to the selected channel.
+func (info *RelayInfo) GetBillingModelName() string {
+	if info == nil {
+		return ""
+	}
+	if info.BillingModelName != "" {
+		return info.BillingModelName
+	}
+	return info.OriginModelName
+}
+
 func (info *RelayInfo) GetUpstreamModelName() string {
 	if info == nil || info.ChannelMeta == nil {
 		return ""
@@ -769,7 +847,14 @@ func (info *RelayInfo) SetReasoningEffort(effort string) {
 	if info == nil {
 		return
 	}
-	info.ReasoningEffort = effort
+	info.ReasoningEffort = strings.TrimSpace(effort)
+}
+
+func (info *RelayInfo) ReasoningState() *dto.ReasoningConversionState {
+	if info == nil {
+		return nil
+	}
+	return info.ReasoningConversion
 }
 
 func (info *RelayInfo) EnsureClaudeConvertInfo() *convmeta.ClaudeConvertInfo {
@@ -824,8 +909,12 @@ func (info *RelayInfo) ConvOptions() *convmeta.Options {
 		},
 		OpenRouterDialect:      info != nil && info.GetChannelType() == constant.ChannelTypeOpenRouter,
 		PreserveThinkingSuffix: model_setting.ShouldPreserveThinkingSuffix,
+		PreserveEffortTail:     model_setting.ShouldPreserveEffortTail,
 	}
 	if info != nil {
+		if info.ChannelMeta != nil {
+			options.ToolLossPolicy = types.ConversionLossPolicy(info.ChannelOtherSettings.ToolLossPolicy)
+		}
 		info.convOptions = options
 	}
 	return options
@@ -840,6 +929,14 @@ func (info *RelayInfo) SetFirstResponseTime() {
 
 func (info *RelayInfo) HasSendResponse() bool {
 	return info.FirstResponseTime.After(info.StartTime)
+}
+
+type OriginTaskRef struct {
+	TaskID         string
+	UpstreamTaskID string
+	Action         string
+	Status         string
+	Data           []byte
 }
 
 // CanSoftFailRetry reports whether a soft failure may still switch channels
@@ -904,6 +1001,10 @@ type TaskRelayInfo struct {
 	PublicTaskID string
 
 	ConsumeQuota bool
+
+	// OriginTasks are plugin-declared public-task dependencies resolved by the
+	// host. Driver hooks receive these as ctx.originTasks; presenters do not.
+	OriginTasks []OriginTaskRef
 
 	// LockedChannel holds the full channel object when the request is bound to
 	// a specific channel (e.g., remix on origin task's channel). Stored as any
@@ -994,15 +1095,17 @@ func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 }
 
 type TaskInfo struct {
-	Code             int    `json:"code"`
-	TaskID           string `json:"task_id"`
-	Status           string `json:"status"`
-	Reason           string `json:"reason,omitempty"`
-	Url              string `json:"url,omitempty"`
-	RemoteUrl        string `json:"remote_url,omitempty"`
-	Progress         string `json:"progress,omitempty"`
-	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
-	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	Code             int             `json:"code"`
+	TaskID           string          `json:"task_id"`
+	Status           string          `json:"status"`
+	Reason           string          `json:"reason,omitempty"`
+	Url              string          `json:"url,omitempty"`
+	RemoteUrl        string          `json:"remote_url,omitempty"`
+	Progress         string          `json:"progress,omitempty"`
+	CompletionTokens int             `json:"completion_tokens,omitempty"` // 用于按倍率计费
+	TotalTokens      int             `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	UsageFacts       map[string]any  `json:"usage_facts,omitempty"`
+	PluginState      json.RawMessage `json:"plugin_state,omitempty"`
 }
 
 func FailTaskInfo(reason string) *TaskInfo {

@@ -1,22 +1,12 @@
+// ABOUTME: Displays scoped usage diagnostics, billing, and on-demand request bodies.
+// ABOUTME: Combines alpha body inspection with main audit and task usage details.
 import JsonView from "@uiw/react-json-view";
 import { githubDarkTheme } from "@uiw/react-json-view/githubDark";
 import { githubLightTheme } from "@uiw/react-json-view/githubLight";
-import {
-  Copy,
-  Check,
-  Route,
-  Settings2,
-  AlertTriangle,
-  Headphones,
-  Monitor,
-  Cloud,
-  Globe,
-  ShieldCheck,
-  UserCog,
-  Info,
-  Braces,
-  LogIn,
-} from "lucide-react";
+import { Braces } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useTheme } from '@/context/theme-provider'
+import { getLogRequestDetail } from '../../api'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -35,24 +25,55 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from "react";
-import type { TFunction } from "i18next";
-import { useTranslation } from "react-i18next";
+import type { TFunction } from 'i18next'
+/*
+Copyright (C) 2023-2026 QuantumNous
 
-import { Dialog } from "@/components/dialog";
-import { StatusBadge, type StatusBadgeProps } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
-import { IconBadge, type IconBadgeTone } from "@/components/ui/icon-badge";
-import { Label } from "@/components/ui/label";
-import { useTheme } from "@/context/theme-provider";
-import { DynamicPricingBreakdown } from "@/features/pricing/components/dynamic-pricing-breakdown";
-import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { formatBillingCurrencyFromUSD } from "@/lib/currency";
-import { formatLogQuota, formatTokens, formatUseTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
-import { getLogRequestDetail } from "../../api";
-import type { UsageLog } from "../../data/schema";
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import {
+  Copy,
+  Check,
+  Route,
+  Settings2,
+  AlertTriangle,
+  Headphones,
+  Monitor,
+  Cloud,
+  Globe,
+  ShieldCheck,
+  UserCog,
+  Info,
+  LogIn,
+} from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+
+import { Dialog } from '@/components/dialog'
+import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
+import { usePricingData } from '@/features/pricing/hooks/use-pricing-data'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { formatBillingCurrencyFromUSD } from '@/lib/currency'
+import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import { cn } from '@/lib/utils'
+
+import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
+import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
   getParamOverrideActionLabel,
@@ -63,14 +84,18 @@ import {
   isViolationFeeLog,
   getFirstResponseTimeColor,
   getResponseTimeColor,
+  getReasoningEffortVariant,
   renderAuditContent,
-} from "../../lib/format";
+} from '../../lib/format'
+import { buildQuotaAuditOperation } from '../../lib/quota-audit-operation'
 import {
   getLogTypeConfig,
   isPerCallBilling,
   isTimingLogType,
-} from "../../lib/utils";
-import { USAGE_BILLING_PATH, type LogOtherData } from "../../types";
+} from '../../lib/utils'
+import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { PluginAuthorLink } from '../plugin-author-link'
+import { DetailRow, DetailSection } from './log-detail-layout'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -89,68 +114,6 @@ function timingTextColorClass(
   if (variant === "success") return "text-emerald-600";
   if (variant === "warning") return "text-amber-600";
   return "text-rose-600";
-}
-
-function DetailRow(props: {
-  label: React.ReactNode;
-  value: React.ReactNode;
-  mono?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <div className="grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)] gap-2 text-sm sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-3">
-      <span className="text-muted-foreground min-w-0 text-xs">
-        {props.label}
-      </span>
-      <span
-        className={cn(
-          "max-w-full min-w-0 text-xs break-all sm:wrap-break-word",
-          props.mono && "font-mono",
-          props.muted && "text-muted-foreground",
-        )}
-      >
-        {props.value}
-      </span>
-    </div>
-  );
-}
-
-function DetailSection(props: {
-  icon?: React.ReactNode;
-  iconTone?: IconBadgeTone;
-  label: string;
-  variant?: "default" | "danger";
-  children: React.ReactNode;
-}) {
-  const isDanger = props.variant === "danger";
-  const iconTone = isDanger ? "destructive" : props.iconTone;
-  return (
-    <div className="min-w-0 space-y-1.5">
-      <Label
-        className={cn(
-          "flex items-center gap-1.5 text-xs font-semibold",
-          isDanger && "text-red-500",
-        )}
-      >
-        {props.icon && (
-          <IconBadge tone={iconTone} size="xs">
-            {props.icon}
-          </IconBadge>
-        )}
-        {props.label}
-      </Label>
-      <div
-        className={cn(
-          "min-w-0 space-y-1 overflow-hidden rounded-md border p-2.5 max-sm:p-2",
-          isDanger
-            ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20"
-            : "bg-muted/30",
-        )}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
 }
 
 function formatRatio(ratio: number | undefined): string {
@@ -377,12 +340,12 @@ function BillingBreakdown(props: {
     });
   }
 
-  rows.push({
-    label: t("Total Cost"),
-    value: formatLogQuota(log.quota),
-  });
-
-  if (rows.length === 0) return null;
+  const usageFacts =
+    other.usage_facts != null &&
+    typeof other.usage_facts === 'object' &&
+    !Array.isArray(other.usage_facts)
+      ? Object.entries(other.usage_facts)
+      : []
 
   return (
     <DetailSection label={t("Billing Details")}>
@@ -394,6 +357,26 @@ function BillingBreakdown(props: {
           mono
         />
       ))}
+      {usageFacts.length > 0 && (
+        <>
+          <Label className='text-xs font-semibold'>
+            {t('Usage parameters')}
+          </Label>
+          {usageFacts.map(([key, value]) => (
+            <DetailRow
+              key={`usage-fact-${key}`}
+              label={key}
+              value={String(value)}
+              mono
+            />
+          ))}
+        </>
+      )}
+      <DetailRow
+        label={t('Total Cost')}
+        value={formatLogQuota(log.quota)}
+        mono
+      />
     </DetailSection>
   );
 }
@@ -574,90 +557,65 @@ function ResponseBodyView(props: { raw: string; isStream: boolean }) {
 }
 
 interface DetailsDialogProps {
-  log: UsageLog;
-  isAdmin: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  log: UsageLog
+  isAdmin: boolean
+  isRoot: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
 export function DetailsDialog(props: DetailsDialogProps) {
-  const { t } = useTranslation();
-  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false });
-  const details = props.log.content ?? "";
-  const other = parseLogOther(props.log.other);
-  const typeConfig = getLogTypeConfig(props.log.type);
-  const [requestBody, setRequestBody] = useState(props.log.request_body ?? "");
-  const [responseBody, setResponseBody] = useState(
-    props.log.response_body ?? ""
-  );
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState("");
+  const { t } = useTranslation()
+  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const other = parseLogOther(props.log.other)
+  const typeConfig = getLogTypeConfig(props.log.type)
+  const [requestBody, setRequestBody] = useState(props.log.request_body ?? '')
+  const [responseBody, setResponseBody] = useState(props.log.response_body ?? '')
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
 
   useEffect(() => {
-    if (!props.open) {
-      return;
-    }
-    setRequestBody(props.log.request_body ?? "");
-    setResponseBody(props.log.response_body ?? "");
-    setDetailError("");
-
-    const requestId = props.log.request_id?.trim();
-    if (!requestId) {
-      return;
-    }
-
-    let cancelled = false;
-    setDetailLoading(true);
+    if (!props.open) return
+    setRequestBody(props.log.request_body ?? '')
+    setResponseBody(props.log.response_body ?? '')
+    setDetailError('')
+    setDetailLoading(false)
+    const requestId = props.log.request_id?.trim()
+    if (!requestId) return
+    let cancelled = false
+    setDetailLoading(true)
     void getLogRequestDetail(requestId, props.isAdmin)
       .then((res) => {
-        if (cancelled) return;
-        if (!res.success) {
-          // No file / no permission is normal when detail logging was off.
-          return;
-        }
-        if (res.data?.request_body) {
-          setRequestBody(res.data.request_body);
-        }
-        if (res.data?.response_body) {
-          setResponseBody(res.data.response_body);
-        }
+        if (cancelled || !res.success) return
+        if (res.data?.request_body) setRequestBody(res.data.request_body)
+        if (res.data?.response_body) setResponseBody(res.data.response_body)
       })
       .catch(() => {
-        if (!cancelled) {
-          setDetailError(t("Failed to load request detail bodies."));
-        }
+        if (!cancelled) setDetailError(t('Failed to load request detail bodies.'))
       })
       .finally(() => {
-        if (!cancelled) {
-          setDetailLoading(false);
-        }
-      });
+        if (!cancelled) setDetailLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [props.open, props.isAdmin, props.log.request_id, props.log.request_body, props.log.response_body, t])
 
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    props.open,
-    props.isAdmin,
-    props.log.request_id,
-    props.log.request_body,
-    props.log.response_body,
-    t,
-  ]);
-
-  const isViolation = isViolationFeeLog(other);
-  const isRefund = props.log.type === 6;
-  const isConsume = props.log.type === 2;
-  const isTopup = props.log.type === 1;
-  const isManage = props.log.type === 3;
-  const isSubscription = other?.billing_source === "subscription";
+  const isViolation = isViolationFeeLog(other)
+  const isRefund = props.log.type === 6
+  const isConsume = props.log.type === 2
+  const isTopup = props.log.type === 1
+  const isManage = props.log.type === 3
+  const isSubscription = other?.billing_source === 'subscription'
   const isTieredBilling =
     isConsume &&
     !isViolation &&
-    other?.billing_mode === "tiered_expr" &&
-    !!other?.expr_b64;
-  const hasAudioTokens = other?.ws || other?.audio;
-  const showTiming = isTimingLogType(props.log.type);
+    other?.billing_mode === 'tiered_expr' &&
+    !!other?.expr_b64
+  const pricingData = usePricingData(props.open && isTieredBilling)
+  const billingUsageSchema = pricingData.models.find(
+    (model) => model.model_name === props.log.model_name
+  )?.billing_usage_schema
+  const hasAudioTokens = other?.ws || other?.audio
+  const showTiming = isTimingLogType(props.log.type)
   const showAdminIp =
     !!props.log.ip && (showTiming || (props.isAdmin && isTopup));
   const adminInfo = other?.admin_info;
@@ -713,21 +671,29 @@ export function DetailsDialog(props: DetailsDialogProps) {
     return String(adminInfo.auth_method);
   })();
 
-  // Localized operation text rendered from the language-independent op
-  // descriptor (shared by audit type=3 and login type=7).
-  const operationText = renderAuditContent(other, t);
-  const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined;
-  let auditResultText = "";
+  // Top-up, audit, and login logs share the language-independent descriptor.
+  const quotaOperation = isTopup
+    ? buildQuotaAuditOperation(
+        other?.op?.action ?? '',
+        other?.op?.params ?? {},
+        true,
+        t
+      )
+    : null
+  const operationText = renderAuditContent(other, t)
+  const details = (isTopup ? operationText : null) ?? props.log.content ?? ''
+  const auditRoute = isManage && props.isAdmin ? other?.audit_info : undefined
+  let auditResultText = ''
   if (auditRoute?.status != null) {
     auditResultText = auditRoute.success
-      ? `${t("Success")} (${auditRoute.status})`
-      : `${t("Failed")} (${auditRoute.status})`;
+      ? `${t('Success')} (${auditRoute.status})`
+      : `${t('Failed')} (${auditRoute.status})`
   }
-  let subscriptionRemainingText = "";
+  let subscriptionRemainingText = ''
   if (other?.subscription_remain != null) {
-    subscriptionRemainingText = formatLogQuota(other.subscription_remain);
+    subscriptionRemainingText = formatLogQuota(other.subscription_remain)
     if (other.subscription_total != null) {
-      subscriptionRemainingText += ` / ${formatLogQuota(other.subscription_total)}`;
+      subscriptionRemainingText += ` / ${formatLogQuota(other.subscription_total)}`
     }
   }
   // Channel update records which fields changed (stable field tokens); render
@@ -778,13 +744,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
   const useChannel = other?.admin_info?.use_channel;
   const channelChain =
-    useChannel && useChannel.length > 0 ? useChannel.join(" → ") : undefined;
-  let reasoningEffortVariant: StatusBadgeProps["variant"] = "green";
-  if (other?.reasoning_effort === "high") {
-    reasoningEffortVariant = "orange";
-  } else if (other?.reasoning_effort === "medium") {
-    reasoningEffortVariant = "yellow";
-  }
+    useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  const reasoningEffortVariant = getReasoningEffortVariant(
+    other?.reasoning_effort
+  )
 
   return (
     <Dialog
@@ -1000,13 +963,13 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Reject reason (admin only) */}
-        {props.isAdmin && other?.reject_reason && (
+        {props.isAdmin && adminInfo?.reject_reason && (
           <DetailSection
             icon={<AlertTriangle className="size-3.5" aria-hidden="true" />}
             label={t("Reject Reason")}
             variant="danger"
           >
-            <p className="text-xs wrap-break-word">{other.reject_reason}</p>
+            <p className='text-xs wrap-break-word'>{adminInfo.reject_reason}</p>
           </DetailSection>
         )}
 
@@ -1050,6 +1013,68 @@ export function DetailsDialog(props: DetailsDialogProps) {
           </DetailSection>
         )}
 
+        {props.isAdmin && adminInfo?.task_plugin ? (
+          <DetailSection label={t('Task Plugin')}>
+            <DetailRow
+              label={t('Plugin key')}
+              value={adminInfo.task_plugin.key}
+              mono
+            />
+            <DetailRow label={t('Name')} value={adminInfo.task_plugin.name} />
+            {adminInfo.task_plugin.version ? (
+              <DetailRow
+                label={t('Version')}
+                value={adminInfo.task_plugin.version}
+                mono
+              />
+            ) : null}
+            {adminInfo.task_plugin.author ? (
+              <DetailRow
+                label={t('Plugin author')}
+                value={
+                  <PluginAuthorLink
+                    author={adminInfo.task_plugin.author}
+                    showUrl
+                  />
+                }
+              />
+            ) : null}
+          </DetailSection>
+        ) : null}
+
+        {props.isRoot && other?.root_info ? (
+          <DetailSection label={t('Root Diagnostics')}>
+            {other.root_info.task_plugin ? (
+              <>
+                <DetailRow
+                  label={t('API Version')}
+                  value={String(other.root_info.task_plugin.api_version)}
+                  mono
+                />
+                <DetailRow
+                  label={t('Plugin Generation')}
+                  value={String(other.root_info.task_plugin.generation)}
+                  mono
+                />
+              </>
+            ) : null}
+            {other.root_info.upstream_task_id ? (
+              <DetailRow
+                label={t('Upstream Task ID')}
+                value={other.root_info.upstream_task_id}
+                mono
+              />
+            ) : null}
+            {other.root_info.node_name ? (
+              <DetailRow
+                label={t('Node Name')}
+                value={other.root_info.node_name}
+                mono
+              />
+            ) : null}
+          </DetailSection>
+        ) : null}
+
         {/* Top-up audit info (type=1, admin only) */}
         {showTopupAuditSection && (
           <DetailSection
@@ -1075,6 +1100,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </span>
               </div>
             )}
+          </DetailSection>
+        )}
+
+        {quotaOperation && (
+          <DetailSection label={t('Quota adjustment details')}>
+            <AuditDetailFields fields={quotaOperation.fields} />
           </DetailSection>
         )}
 
@@ -1256,7 +1287,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
               compact
               billingExpr={decodeBillingExprB64(other.expr_b64)}
               matchedTierLabel={other.matched_tier}
+              requestRules={other.request_rules}
               hideCacheColumns={!hasAnyCacheTokens(other)}
+              usageSchema={billingUsageSchema}
+              usageFacts={other.usage_facts}
             />
           </DetailSection>
         )}

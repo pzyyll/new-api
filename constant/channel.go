@@ -1,3 +1,5 @@
+// ABOUTME: Defines stable channel identifiers and provider endpoints.
+// ABOUTME: Keeps persisted alpha channel types compatible across merges.
 package constant
 
 const (
@@ -59,6 +61,7 @@ const (
 	ChannelTypeOpenCodeGo     = 59
 	ChannelTypeSub2API        = 60
 	ChannelTypeNewAPI         = 61
+	ChannelTypeTaskPlugin     = 62
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -126,6 +129,14 @@ var ChannelBaseURLs = []string{
 	"https://opencode.ai/zen/go",                //59
 	"",                                          //60
 	"",                                          //61
+	"",                                          //62
+}
+
+func GetChannelBaseURL(channelType int) string {
+	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
+		return ""
+	}
+	return ChannelBaseURLs[channelType]
 }
 
 var ChannelTypeNames = map[int]string{
@@ -187,6 +198,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeOpenCodeGo:     "OpenCode Go",
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
+	ChannelTypeTaskPlugin:     "Task Plugin",
 }
 
 func GetChannelTypeName(channelType int) string {
