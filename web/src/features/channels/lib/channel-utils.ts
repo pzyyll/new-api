@@ -1,5 +1,3 @@
-// ABOUTME: Formats channel labels, status values, and provider icons.
-// ABOUTME: Maps provider icons to alpha-compatible persisted channel IDs.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -23,9 +21,12 @@ import { formatTimestampToDate } from '@/lib/format'
 
 import {
   CHANNEL_STATUS_CONFIG,
-  CHANNEL_TYPE_SUB2API,
-  CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPES,
+  CHANNEL_TYPE_NEW_API,
+  CHANNEL_TYPE_OPEN_CODE_GO,
+  CHANNEL_TYPE_SGLANG,
+  CHANNEL_TYPE_SUB2API,
+  CHANNEL_TYPE_VLLM,
   MULTI_KEY_STATUS_CONFIG,
   RESPONSE_TIME_CONFIG,
   RESPONSE_TIME_THRESHOLDS,
@@ -56,8 +57,11 @@ export function getChannelTypeIcon(type: number): string {
     7: 'OpenAI', // OhMyGPT
     8: 'OpenAI', // Custom
     58: 'NewAPI', // Advanced Custom
+    [CHANNEL_TYPE_OPEN_CODE_GO]: 'OpenCode', // OpenCode Go
     [CHANNEL_TYPE_SUB2API]: 'Sub2API', // Sub2API
     [CHANNEL_TYPE_NEW_API]: 'NewAPI', // New API
+    [CHANNEL_TYPE_VLLM]: 'Vllm', // vLLM
+    [CHANNEL_TYPE_SGLANG]: 'SGLang', // SGLang
     3: 'Azure', // Azure
 
     // Anthropic
@@ -97,7 +101,6 @@ export function getChannelTypeIcon(type: number): string {
     40: 'SiliconCloud', // SiliconFlow
     44: 'OpenAI', // MokaAI
     20: 'OpenRouter', // OpenRouter
-    59: 'OpenCode', // OpenCode Go
 
     // Image/Video generation
     2: 'Midjourney', // MjProxy

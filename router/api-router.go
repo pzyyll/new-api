@@ -204,9 +204,14 @@ func SetApiRouter(router *gin.Engine) {
 		optionRoute.Use(middleware.RootAuth())
 		{
 			optionRoute.GET("/", controller.GetOptions)
+			optionRoute.GET("/request_policy", controller.GetRequestPolicy)
+			optionRoute.PATCH("/request_policy", controller.UpdateRequestPolicy)
 			optionRoute.PUT("/", controller.UpdateOption)
+			optionRoute.PUT("/passkey/domains", controller.UpdatePasskeyDomains)
 			optionRoute.GET("/model_pricing", controller.GetModelPricingConfig)
 			optionRoute.PATCH("/model_pricing", controller.UpdateModelPricingConfig)
+			optionRoute.POST("/model_pricing/convert", controller.PreviewModelPricingConversion)
+			optionRoute.POST("/model_pricing/preview", controller.PreviewModelPricing)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
@@ -255,6 +260,7 @@ func SetApiRouter(router *gin.Engine) {
 			taskPluginRoute.GET("/marketplace/sources", controller.GetTaskPluginMarketplaceSources)
 			taskPluginRoute.PUT("/marketplace/sources", controller.UpdateTaskPluginMarketplaceSources)
 			taskPluginRoute.GET("/:key", controller.GetTaskPlugin)
+			taskPluginRoute.GET("/:key/icon", controller.GetTaskPluginIcon)
 			taskPluginRoute.GET("/:key/versions", controller.GetTaskPluginVersions)
 			taskPluginRoute.POST("/:key/activate", controller.ActivateTaskPlugin)
 			taskPluginRoute.POST("/:key/status", controller.SetTaskPluginStatus)
@@ -297,6 +303,7 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.GET("/search", controller.SearchRedemptions)
 			redemptionRoute.GET("/:id", controller.GetRedemption)
 			redemptionRoute.POST("/", controller.AddRedemption)
+			redemptionRoute.POST("/batch", controller.DeleteRedemptionBatch)
 			redemptionRoute.PUT("/", controller.UpdateRedemption)
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
@@ -321,6 +328,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
+			systemTaskRoute.DELETE("/history", controller.DeleteSystemTaskHistory)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)
 		}

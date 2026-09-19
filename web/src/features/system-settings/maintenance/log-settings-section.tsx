@@ -61,6 +61,11 @@ import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 import dayjs from '@/lib/dayjs'
 import { formatTimestampToDate } from '@/lib/format'
+import { handleServerError } from '@/lib/handle-server-error'
+import {
+  requireServerSuccess,
+  createServerError,
+} from '@/lib/server-error-message'
 
 import {
   getCurrentLogCleanupTask,
@@ -181,9 +186,10 @@ export function LogSettingsSection({
   const fetchServerLogInfo = useCallback(async () => {
     try {
       const res = await api.get('/api/performance/logs')
+      requireServerSuccess(res.data)
       if (res.data.success) setServerLogInfo(res.data.data)
-    } catch {
-      /* ignore */
+    } catch (error) {
+      handleServerError(error)
     }
   }, [])
 
@@ -269,7 +275,7 @@ export function LogSettingsSection({
                 : t('No log entries matched the selected time.')
             )
           } else if (res.data.status === 'failed') {
-            toast.error(res.data.error || t('Failed to clean logs'))
+            handleServerError(res.data, t('Failed to clean logs'))
           }
         }
       } catch {
@@ -324,7 +330,7 @@ export function LogSettingsSection({
     try {
       const res = await startLogCleanupTask(purgeTimestamp)
       if (!res.success) {
-        throw new Error(res.message || t('Failed to clean logs'))
+        throw createServerError(res, t('Failed to clean logs'))
       }
       if (!res.data) {
         throw new Error(t('Failed to clean logs'))
@@ -335,7 +341,7 @@ export function LogSettingsSection({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t('Failed to clean logs')
-      toast.error(message)
+      handleServerError(error, message)
     } finally {
       setIsStartingLogCleanup(false)
     }
@@ -346,7 +352,9 @@ export function LogSettingsSection({
     try {
       const res = await api.delete('/api/log/request-detail')
       if (!res.data.success) {
-        throw new Error(res.data.message || t('Failed to clear request detail files'))
+        throw new Error(
+          res.data.message || t('Failed to clear request detail files')
+        )
       }
       const removed = res.data.data?.removed ?? 0
       toast.success(
@@ -388,11 +396,11 @@ export function LogSettingsSection({
           })
         )
       } else {
-        toast.error(res.data.message || t('Cleanup failed'))
+        handleServerError(res.data, t('Cleanup failed'))
       }
       fetchServerLogInfo()
-    } catch {
-      toast.error(t('Cleanup failed'))
+    } catch (error) {
+      handleServerError(error, t('Cleanup failed'))
     } finally {
       setServerLogCleanupLoading(false)
     }
