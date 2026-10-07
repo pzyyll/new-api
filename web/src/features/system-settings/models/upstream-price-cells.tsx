@@ -1,3 +1,5 @@
+// ABOUTME: Display and select upstream pricing values for synchronization.
+// ABOUTME: Highlight expression differences against the current local price.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -34,7 +36,10 @@ import {
 } from './upstream-ratio-sync-helpers'
 import type { PricingSyncRow } from './upstream-ratio-sync-table'
 
-export function SyncPriceCell(props: { values: PricingSyncValues }) {
+export function SyncPriceCell(props: {
+  values: PricingSyncValues
+  compareTo?: PricingSyncValues
+}) {
   const { t } = useTranslation()
   const kind = getSyncPriceKind(props.values)
   if (kind === 'unset') {
@@ -60,8 +65,8 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
         </div>
         {parsed ? (
           <div className='space-y-2'>
-            {parsed.tiers.map((tier, index) => (
-              <div key={`${tier.label}-${index}`} className='space-y-1'>
+            {parsed.tiers.map((tier) => (
+              <div key={JSON.stringify(tier)} className='space-y-1'>
                 {parsed.tiers.length > 1 && (
                   <div className='text-muted-foreground text-xs!'>
                     {tier.condition || tier.label || t('Default')}
@@ -78,7 +83,10 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
           </div>
         ) : (
           <code className='block text-xs! leading-relaxed break-all whitespace-pre-wrap'>
-            {props.values.billing_expr}
+            {highlightExprDiff(
+              String(props.values.billing_expr),
+              props.compareTo?.billing_expr
+            )}
           </code>
         )}
       </div>
@@ -94,6 +102,25 @@ export function SyncPriceCell(props: { values: PricingSyncValues }) {
     )
   }
   return <SyncPriceMetrics lines={lines} />
+}
+
+// Positional word diff: only meaningful when both expressions share one shape.
+function highlightExprDiff(expr: string, base: unknown) {
+  const words = [...expr.matchAll(/\S+|\s+/g)]
+  const baseWords = typeof base === 'string' ? base.match(/\S+|\s+/g) : null
+  if (!baseWords || baseWords.length !== words.length) return expr
+  return words.map((word, i) =>
+    word[0] === baseWords[i] ? (
+      word[0]
+    ) : (
+      <mark
+        key={word.index}
+        className='rounded-sm bg-amber-500/25 text-inherit'
+      >
+        {word[0]}
+      </mark>
+    )
+  )
 }
 
 function SyncPriceMetrics(props: {
@@ -195,7 +222,7 @@ export function SyncSourcePriceCell(props: {
           )}
         </div>
       )}
-      <SyncPriceCell values={values} />
+      <SyncPriceCell values={values} compareTo={props.row.prices.current} />
     </div>
   )
 }
