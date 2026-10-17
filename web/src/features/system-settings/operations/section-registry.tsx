@@ -1,3 +1,5 @@
+// ABOUTME: Defines operation settings shared by the settings interface.
+// ABOUTME: Retains upstream updates and branch-specific features.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -97,8 +99,14 @@ const OPERATIONS_SECTIONS = [
     titleKey: 'Log Maintenance',
     build: (settings: OperationsSettings) => (
       <LogSettingsSection
-        defaultEnabled={Boolean(settings.LogConsumeEnabled)}
-        defaultRequestDetailEnabled={Boolean(settings.RequestDetailLogEnabled)}
+        defaultValues={{
+          LogConsumeEnabled: Boolean(settings.LogConsumeEnabled),
+          RequestDetailLogEnabled: Boolean(settings.RequestDetailLogEnabled),
+          'log_setting.user_export_enabled':
+            settings['log_setting.user_export_enabled'] ?? true,
+          'log_setting.max_range_days':
+            settings['log_setting.max_range_days'] ?? 365,
+        }}
       />
     ),
   },

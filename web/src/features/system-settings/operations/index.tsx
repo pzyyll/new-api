@@ -1,3 +1,5 @@
+// ABOUTME: Defines operation settings shared by the settings interface.
+// ABOUTME: Retains upstream updates and branch-specific features.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -45,6 +47,8 @@ const defaultOperationsSettings: OperationsSettings = {
   WorkerAllowHttpImageRequestEnabled: false,
   LogConsumeEnabled: false,
   RequestDetailLogEnabled: false,
+  'log_setting.user_export_enabled': true,
+  'log_setting.max_range_days': 365,
   'performance_setting.disk_cache_enabled': false,
   'performance_setting.disk_cache_threshold_mb': 10,
   'performance_setting.disk_cache_max_size_mb': 1024,

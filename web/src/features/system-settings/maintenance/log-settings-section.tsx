@@ -1,3 +1,5 @@
+// ABOUTME: Configures log recording, export limits, and file maintenance.
+// ABOUTME: Keeps request detail controls alongside upstream log modules.
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -17,91 +19,60 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import * as z from 'zod'
 
-import { DateTimePicker } from '@/components/datetime-picker'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
   FormDescription,
   FormField,
+  FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
-import dayjs from '@/lib/dayjs'
-import { formatTimestampToDate } from '@/lib/format'
-import { handleServerError } from '@/lib/handle-server-error'
-import {
-  requireServerSuccess,
-  createServerError,
-} from '@/lib/server-error-message'
 
-import {
-  getCurrentLogCleanupTask,
-  getSystemTask,
-  startLogCleanupTask,
-} from '../api'
 import {
   SettingsControlGroup,
   SettingsForm,
+  SettingsFormGrid,
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
-import type { LogCleanupTask } from '../types'
+import { safeNumberFieldProps } from '../utils/numeric-field'
+import { HistoryLogCleanup } from './history-log-cleanup'
+import { ServerLogFiles } from './server-log-files'
 
 const logSettingsSchema = z.object({
   LogConsumeEnabled: z.boolean(),
   RequestDetailLogEnabled: z.boolean(),
+  log_setting: z.object({
+    user_export_enabled: z.boolean(),
+    max_range_days: z.number().int().min(1),
+  }),
 })
 
 type LogSettingsFormValues = z.infer<typeof logSettingsSchema>
 
 type LogSettingsSectionProps = {
-  defaultEnabled: boolean
-  defaultRequestDetailEnabled: boolean
-}
-
-type ServerLogInfo = {
-  enabled: boolean
-  log_dir: string
-  file_count: number
-  total_size: number
-  oldest_time?: string
-  newest_time?: string
+  defaultValues: {
+    LogConsumeEnabled: boolean
+    RequestDetailLogEnabled?: boolean
+    'log_setting.user_export_enabled': boolean
+    'log_setting.max_range_days': number
+  }
 }
 
 type RequestDetailStorageInfo = {
@@ -109,8 +80,6 @@ type RequestDetailStorageInfo = {
   file_count: number
   total_size: number
 }
-
-const HOURS_IN_DAY = 24
 
 function formatBytes(bytes: number, decimals = 2): string {
   if (!bytes || Number.isNaN(bytes)) return '0 Bytes'
@@ -125,73 +94,38 @@ function formatBytes(bytes: number, decimals = 2): string {
   }`
 }
 
-const getDateHoursAgo = (hours: number) => {
-  const date = new Date()
-  date.setHours(date.getHours() - hours)
-  return date
-}
-
-const getDateDaysAgo = (days: number) => getDateHoursAgo(days * HOURS_IN_DAY)
-
-const quickSelectOptions = [
-  {
-    label: '24 hours ago',
-    getValue: () => getDateHoursAgo(24),
-  },
-  {
-    label: '7 days ago',
-    getValue: () => getDateDaysAgo(7),
-  },
-  {
-    label: '30 days ago',
-    getValue: () => getDateDaysAgo(30),
-  },
-]
-
-function isActiveLogCleanupTask(task: LogCleanupTask | null) {
-  return task?.status === 'pending' || task?.status === 'running'
-}
-
-export function LogSettingsSection({
-  defaultEnabled,
-  defaultRequestDetailEnabled,
-}: LogSettingsSectionProps) {
+export function LogSettingsSection(props: LogSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const form = useForm<LogSettingsFormValues>({
-    resolver: zodResolver(logSettingsSchema),
-    defaultValues: {
-      LogConsumeEnabled: defaultEnabled,
-      RequestDetailLogEnabled: defaultRequestDetailEnabled,
-    },
-  })
-
-  const [purgeDate, setPurgeDate] = useState<Date | undefined>(() =>
-    getDateDaysAgo(30)
-  )
-  const [isStartingLogCleanup, setIsStartingLogCleanup] = useState(false)
-  const [logCleanupTask, setLogCleanupTask] = useState<LogCleanupTask | null>(
-    null
-  )
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-  const [serverLogInfo, setServerLogInfo] = useState<ServerLogInfo | null>(null)
-  const [serverLogCleanupMode, setServerLogCleanupMode] = useState('by_count')
-  const [serverLogCleanupValue, setServerLogCleanupValue] = useState(10)
-  const [serverLogCleanupLoading, setServerLogCleanupLoading] = useState(false)
   const [requestDetailInfo, setRequestDetailInfo] =
     useState<RequestDetailStorageInfo | null>(null)
   const [requestDetailClearLoading, setRequestDetailClearLoading] =
     useState(false)
+  const [showRequestDetailConfirm, setShowRequestDetailConfirm] =
+    useState(false)
+  const recordingTitleId = useId()
+  const searchTitleId = useId()
+  const formDefaults = useMemo<LogSettingsFormValues>(
+    () => ({
+      LogConsumeEnabled: props.defaultValues.LogConsumeEnabled,
+      RequestDetailLogEnabled:
+        props.defaultValues.RequestDetailLogEnabled ?? false,
+      log_setting: {
+        user_export_enabled:
+          props.defaultValues['log_setting.user_export_enabled'],
+        max_range_days: props.defaultValues['log_setting.max_range_days'],
+      },
+    }),
+    [props.defaultValues]
+  )
+  const form = useForm<LogSettingsFormValues>({
+    resolver: zodResolver(logSettingsSchema),
+    defaultValues: formDefaults,
+  })
 
-  const fetchServerLogInfo = useCallback(async () => {
-    try {
-      const res = await api.get('/api/performance/logs')
-      requireServerSuccess(res.data)
-      if (res.data.success) setServerLogInfo(res.data.data)
-    } catch (error) {
-      handleServerError(error)
-    }
-  }, [])
+  useEffect(() => {
+    form.reset(formDefaults)
+  }, [formDefaults, form])
 
   const fetchRequestDetailInfo = useCallback(async () => {
     try {
@@ -203,149 +137,8 @@ export function LogSettingsSection({
   }, [])
 
   useEffect(() => {
-    form.reset({
-      LogConsumeEnabled: defaultEnabled,
-      RequestDetailLogEnabled: defaultRequestDetailEnabled,
-    })
-  }, [defaultEnabled, defaultRequestDetailEnabled, form])
-
-  useEffect(() => {
-    fetchServerLogInfo()
     fetchRequestDetailInfo()
-  }, [fetchServerLogInfo, fetchRequestDetailInfo])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function fetchCurrentLogCleanupTask() {
-      try {
-        const res = await getCurrentLogCleanupTask()
-        if (!cancelled && res.success && res.data) {
-          setLogCleanupTask(res.data)
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-
-    fetchCurrentLogCleanupTask()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const purgeTimestamp = useMemo(() => {
-    if (!purgeDate) return null
-    return Math.floor(purgeDate.getTime() / 1000)
-  }, [purgeDate])
-
-  const formattedPurgeDate = useMemo(() => {
-    if (!purgeDate) return ''
-    return formatTimestampToDate(purgeDate.getTime(), 'milliseconds')
-  }, [purgeDate])
-
-  const logCleanupActive = isActiveLogCleanupTask(logCleanupTask)
-  const logCleanupState = logCleanupTask?.state
-  const logCleanupProgress = Math.min(
-    100,
-    Math.max(0, logCleanupState?.progress ?? 0)
-  )
-  const logCleanupProcessed = logCleanupState?.processed ?? 0
-  const logCleanupTotal = logCleanupState?.total ?? 0
-  const logCleanupTaskId = logCleanupTask?.task_id
-
-  useEffect(() => {
-    if (!logCleanupTaskId || !logCleanupActive) return
-
-    let cancelled = false
-    const interval = window.setInterval(async () => {
-      try {
-        const res = await getSystemTask(logCleanupTaskId)
-        if (cancelled || !res.success || !res.data) return
-
-        setLogCleanupTask(res.data)
-        if (!isActiveLogCleanupTask(res.data)) {
-          if (res.data.status === 'succeeded') {
-            const count =
-              res.data.result?.deleted_count ?? res.data.state?.processed ?? 0
-            toast.success(
-              count > 0
-                ? t('{{count}} log entries removed.', { count })
-                : t('No log entries matched the selected time.')
-            )
-          } else if (res.data.status === 'failed') {
-            handleServerError(res.data, t('Failed to clean logs'))
-          }
-        }
-      } catch {
-        /* keep polling */
-      }
-    }, 1000)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [logCleanupActive, logCleanupTaskId, t])
-
-  const onSubmit = async (values: LogSettingsFormValues) => {
-    const updates: Array<Promise<unknown>> = []
-    if (values.LogConsumeEnabled !== defaultEnabled) {
-      updates.push(
-        updateOption.mutateAsync({
-          key: 'LogConsumeEnabled',
-          value: values.LogConsumeEnabled,
-        })
-      )
-    }
-    if (values.RequestDetailLogEnabled !== defaultRequestDetailEnabled) {
-      updates.push(
-        updateOption.mutateAsync({
-          key: 'RequestDetailLogEnabled',
-          value: values.RequestDetailLogEnabled,
-        })
-      )
-    }
-    if (updates.length === 0) return
-    await Promise.all(updates)
-  }
-
-  const handleRequestCleanLogs = () => {
-    if (!purgeTimestamp) {
-      toast.error(t('Select a timestamp before clearing logs.'))
-      return
-    }
-
-    setShowConfirmDialog(true)
-  }
-
-  const handleCleanLogs = async () => {
-    if (!purgeTimestamp) {
-      toast.error(t('Select a timestamp before clearing logs.'))
-      return
-    }
-
-    setIsStartingLogCleanup(true)
-    try {
-      const res = await startLogCleanupTask(purgeTimestamp)
-      if (!res.success) {
-        throw createServerError(res, t('Failed to clean logs'))
-      }
-      if (!res.data) {
-        throw new Error(t('Failed to clean logs'))
-      }
-      setLogCleanupTask(res.data)
-      setShowConfirmDialog(false)
-      toast.success(t('Log cleanup task started.'))
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t('Failed to clean logs')
-      handleServerError(error, message)
-    } finally {
-      setIsStartingLogCleanup(false)
-    }
-  }
+  }, [fetchRequestDetailInfo])
 
   const clearRequestDetailFiles = async () => {
     setRequestDetailClearLoading(true)
@@ -360,6 +153,7 @@ export function LogSettingsSection({
       toast.success(
         t('Cleared {{count}} request detail directories.', { count: removed })
       )
+      setShowRequestDetailConfirm(false)
       await fetchRequestDetailInfo()
     } catch (error) {
       const message =
@@ -372,42 +166,24 @@ export function LogSettingsSection({
     }
   }
 
-  const cleanupServerLogFiles = async () => {
-    if (
-      !serverLogCleanupValue ||
-      Number.isNaN(serverLogCleanupValue) ||
-      serverLogCleanupValue < 1
-    ) {
-      toast.error(t('Please enter a valid number'))
-      return
-    }
-
-    setServerLogCleanupLoading(true)
-    try {
-      const res = await api.delete(
-        `/api/performance/logs?mode=${serverLogCleanupMode}&value=${serverLogCleanupValue}`
-      )
-      if (res.data.success) {
-        const { deleted_count, freed_bytes } = res.data.data
-        toast.success(
-          t('Cleaned up {{count}} log files, freed {{size}}', {
-            count: deleted_count,
-            size: formatBytes(freed_bytes),
-          })
-        )
-      } else {
-        handleServerError(res.data, t('Cleanup failed'))
-      }
-      fetchServerLogInfo()
-    } catch (error) {
-      handleServerError(error, t('Cleanup failed'))
-    } finally {
-      setServerLogCleanupLoading(false)
+  const onSubmit = async (values: LogSettingsFormValues) => {
+    const changes = [
+      ['LogConsumeEnabled', values.LogConsumeEnabled],
+      ['RequestDetailLogEnabled', values.RequestDetailLogEnabled],
+      [
+        'log_setting.user_export_enabled',
+        values.log_setting.user_export_enabled,
+      ],
+      ['log_setting.max_range_days', values.log_setting.max_range_days],
+    ] as const
+    for (const [key, value] of changes) {
+      if (value === (props.defaultValues[key] ?? false)) continue
+      await updateOption.mutateAsync({ key, value })
     }
   }
 
   return (
-    <SettingsSection title={t('Log Maintenance')}>
+    <SettingsSection title={t('Log Maintenance')} className='gap-6'>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
@@ -415,374 +191,193 @@ export function LogSettingsSection({
             isSaving={updateOption.isPending}
             saveLabel='Save log settings'
           />
-          <FormField
-            control={form.control}
-            name='LogConsumeEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Record quota usage')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Track per-request consumption to power usage analytics. Keeping this on increases database writes.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <FormMessage />
-              </SettingsSwitchItem>
-            )}
-          />
+          <div
+            role='group'
+            aria-labelledby={recordingTitleId}
+            className='flex min-w-0 flex-col gap-4'
+          >
+            <h4 id={recordingTitleId} className='font-medium'>
+              {t('Log recording')}
+            </h4>
+            <FormField
+              control={form.control}
+              name='LogConsumeEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Record quota usage')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Track per-request consumption to power usage analytics. Keeping this on increases database writes.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </SettingsSwitchItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='RequestDetailLogEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Record request/response body')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Store full request JSON and upstream response bodies as files under log-dir/request-detail/{request_id}/ for usage log details. Stream responses are stored as newline-delimited upstream data payloads. Not written to the database. Intended for temporary debugging; multi-node deployments need a shared log-dir.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </SettingsSwitchItem>
+              )}
+            />
+          </div>
 
-          <FormField
-            control={form.control}
-            name='RequestDetailLogEnabled'
-            render={({ field }) => (
-              <SettingsSwitchItem>
-                <SettingsSwitchContent>
-                  <FormLabel>{t('Record request/response body')}</FormLabel>
-                  <FormDescription>
-                    {t(
-                      'Store full request JSON and upstream response bodies as files under log-dir/request-detail/{request_id}/ for usage log details. Stream responses are stored as newline-delimited upstream data payloads. Not written to the database. Intended for temporary debugging; multi-node deployments need a shared log-dir.'
-                    )}
-                  </FormDescription>
-                </SettingsSwitchContent>
-                <FormControl>
-                  <Switch
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                  />
-                </FormControl>
-                <FormMessage />
-              </SettingsSwitchItem>
-            )}
-          />
+          <Separator />
 
-          <SettingsControlGroup className='space-y-3'>
-            <div>
-              <h4 className='text-sm font-medium'>
-                {t('Request detail body files')}
-              </h4>
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'Clear all request/response body files stored for usage log details on this node.'
+          <div
+            role='group'
+            aria-labelledby={searchTitleId}
+            className='flex min-w-0 flex-col gap-4'
+          >
+            <h4 id={searchTitleId} className='font-medium'>
+              {t('Log search and export')}
+            </h4>
+            <SettingsFormGrid>
+              <FormField
+                control={form.control}
+                name='log_setting.user_export_enabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Allow users to export logs')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Users can download their own logs from the usage log page. Administrators can always export.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </SettingsSwitchItem>
                 )}
-              </p>
-            </div>
-            {requestDetailInfo && (
-              <div className='rounded-lg border p-3 text-sm'>
-                <div className='grid grid-cols-1 gap-2 md:grid-cols-3'>
-                  <div>
-                    <span className='text-muted-foreground'>
-                      {t('Directory')}:
-                    </span>{' '}
-                    <span className='font-mono text-xs break-all'>
-                      {requestDetailInfo.dir}
-                    </span>
-                  </div>
-                  <div>
-                    <span className='text-muted-foreground'>
-                      {t('File Count')}:
-                    </span>{' '}
-                    {requestDetailInfo.file_count}
-                  </div>
-                  <div>
-                    <span className='text-muted-foreground'>
-                      {t('Total Size')}:
-                    </span>{' '}
-                    {formatBytes(requestDetailInfo.total_size)}
-                  </div>
-                </div>
-              </div>
-            )}
-            <AlertDialog>
-              <AlertDialogTrigger
-                render={
-                  <Button
-                    type='button'
-                    variant='destructive'
-                    size='sm'
-                    disabled={requestDetailClearLoading}
-                  />
-                }
-              >
-                {requestDetailClearLoading
-                  ? t('Clearing...')
-                  : t('Clear request detail files')}
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    {t('Clear all request detail body files?')}
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t(
-                      'This permanently deletes all request/response body files under the request-detail directory on this node. Usage log rows are not affected.'
-                    )}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-                  <AlertDialogAction
-                    variant='destructive'
-                    onClick={clearRequestDetailFiles}
-                  >
-                    {t('Clear')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </SettingsControlGroup>
-
-          <SettingsControlGroup className='space-y-3'>
-            <div>
-              <h4 className='text-sm font-medium'>{t('Clean history logs')}</h4>
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'Remove all log entries created before the selected timestamp.'
+              />
+              <FormField
+                control={form.control}
+                name='log_setting.max_range_days'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Longest log time range (days)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'The longest time range a user can view at once in the logs and on the dashboard, and the longest range any export can cover.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
                 )}
-              </p>
-            </div>
-            <DateTimePicker value={purgeDate} onChange={setPurgeDate} />
-            <div className='flex flex-wrap gap-3'>
-              {quickSelectOptions.map((option) => (
-                <Button
-                  key={option.label}
-                  type='button'
-                  variant='outline'
-                  onClick={() => setPurgeDate(option.getValue())}
-                >
-                  {t(option.label)}
-                </Button>
-              ))}
-              <Button
-                type='button'
-                variant='destructive'
-                onClick={handleRequestCleanLogs}
-                disabled={isStartingLogCleanup || logCleanupActive}
-              >
-                {isStartingLogCleanup || logCleanupActive
-                  ? t('Cleaning...')
-                  : t('Clean logs')}
-              </Button>
-            </div>
-            {logCleanupTask && (
-              <div className='rounded-md border p-3'>
-                <div className='mb-2 flex items-center justify-between gap-3 text-sm'>
-                  <span className='font-medium'>
-                    {t('Log cleanup progress')}
-                  </span>
-                  <span className='text-muted-foreground tabular-nums'>
-                    {logCleanupProgress}%
-                  </span>
-                </div>
-                <Progress value={logCleanupProgress} />
-                <div className='text-muted-foreground mt-2 text-xs'>
-                  {t('{{processed}} of {{total}} log entries processed.', {
-                    processed: logCleanupProcessed,
-                    total: logCleanupTotal,
-                  })}
-                </div>
-                {logCleanupTask.status === 'failed' && logCleanupTask.error && (
-                  <div className='text-destructive mt-2 text-xs'>
-                    {logCleanupTask.error}
-                  </div>
-                )}
-              </div>
-            )}
-          </SettingsControlGroup>
+              />
+            </SettingsFormGrid>
+          </div>
         </SettingsForm>
       </Form>
 
       <Separator />
 
-      <div className='space-y-4'>
+      <SettingsControlGroup className='space-y-3'>
         <div>
-          <h4 className='font-medium'>{t('Server Log Management')}</h4>
-          <p className='text-muted-foreground mt-1 text-xs'>
+          <h4 className='text-sm font-medium'>
+            {t('Request detail body files')}
+          </h4>
+          <p className='text-muted-foreground text-sm'>
             {t(
-              'Manage server log files. Log files accumulate over time; regular cleanup is recommended to free disk space.'
+              'Clear all request/response body files stored for usage log details on this node.'
             )}
           </p>
         </div>
-
-        {serverLogInfo !== null &&
-          (serverLogInfo.enabled ? (
-            <div className='space-y-4'>
-              <div className='rounded-lg border p-4'>
-                <div className='grid grid-cols-2 gap-2 text-sm md:grid-cols-4'>
-                  <div>
-                    <span className='text-muted-foreground'>
-                      {t('Log Directory')}:
-                    </span>{' '}
-                    <span className='font-mono text-xs'>
-                      {serverLogInfo.log_dir}
-                    </span>
-                  </div>
-                  <div>
-                    <span className='text-muted-foreground'>
-                      {t('Log File Count')}:
-                    </span>{' '}
-                    {serverLogInfo.file_count}
-                  </div>
-                  <div>
-                    <span className='text-muted-foreground'>
-                      {t('Total Log Size')}:
-                    </span>{' '}
-                    {formatBytes(serverLogInfo.total_size)}
-                  </div>
-                  {serverLogInfo.oldest_time && serverLogInfo.newest_time && (
-                    <div>
-                      <span className='text-muted-foreground'>
-                        {t('Date Range')}:
-                      </span>{' '}
-                      {dayjs(serverLogInfo.oldest_time).format('YYYY-MM-DD')} ~{' '}
-                      {dayjs(serverLogInfo.newest_time).format('YYYY-MM-DD')}
-                    </div>
-                  )}
-                </div>
+        {requestDetailInfo && (
+          <div className='rounded-lg border p-3 text-sm'>
+            <div className='grid grid-cols-1 gap-2 md:grid-cols-3'>
+              <div>
+                <span className='text-muted-foreground'>{t('Directory')}:</span>{' '}
+                <span className='font-mono text-xs break-all'>
+                  {requestDetailInfo.dir}
+                </span>
               </div>
-
-              <div className='flex flex-wrap items-end gap-3'>
-                <div className='grid gap-1.5'>
-                  <Label className='text-xs'>{t('Cleanup Mode')}</Label>
-                  <Select
-                    items={[
-                      { value: 'by_count', label: t('Retain last N files') },
-                      { value: 'by_days', label: t('Retain last N days') },
-                    ]}
-                    value={serverLogCleanupMode}
-                    onValueChange={(value) =>
-                      value !== null && setServerLogCleanupMode(value)
-                    }
-                  >
-                    <SelectTrigger className='w-[160px]'>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='by_count'>
-                          {t('Retain last N files')}
-                        </SelectItem>
-                        <SelectItem value='by_days'>
-                          {t('Retain last N days')}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className='grid gap-1.5'>
-                  <Label className='text-xs'>
-                    {serverLogCleanupMode === 'by_count'
-                      ? t('Files to Retain')
-                      : t('Days to Retain')}
-                  </Label>
-                  <Input
-                    type='number'
-                    min={1}
-                    max={serverLogCleanupMode === 'by_count' ? 1000 : 3650}
-                    value={serverLogCleanupValue}
-                    onChange={(event) =>
-                      setServerLogCleanupValue(Number(event.target.value))
-                    }
-                    className='w-[120px]'
-                  />
-                </div>
-                <AlertDialog>
-                  <AlertDialogTrigger
-                    render={
-                      <Button
-                        type='button'
-                        variant='destructive'
-                        size='sm'
-                        disabled={serverLogCleanupLoading}
-                      />
-                    }
-                  >
-                    {serverLogCleanupLoading
-                      ? t('Cleaning...')
-                      : t('Clean Up Log Files')}
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {t('Confirm log file cleanup?')}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {serverLogCleanupMode === 'by_count'
-                          ? t(
-                              'Only the last {{value}} log files will be retained; the rest will be deleted.',
-                              {
-                                value: serverLogCleanupValue,
-                              }
-                            )
-                          : t(
-                              'Log files older than {{value}} days will be deleted.',
-                              {
-                                value: serverLogCleanupValue,
-                              }
-                            )}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
-                      <AlertDialogAction
-                        variant='destructive'
-                        onClick={cleanupServerLogFiles}
-                      >
-                        {t('Confirm Cleanup')}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+              <div>
+                <span className='text-muted-foreground'>
+                  {t('File Count')}:
+                </span>{' '}
+                {requestDetailInfo.file_count}
+              </div>
+              <div>
+                <span className='text-muted-foreground'>
+                  {t('Total Size')}:
+                </span>{' '}
+                {formatBytes(requestDetailInfo.total_size)}
               </div>
             </div>
-          ) : (
-            <Alert>
-              <AlertDescription>
-                {t(
-                  'Server logging is not enabled (log directory not configured)'
-                )}
-              </AlertDescription>
-            </Alert>
-          ))}
-      </div>
+          </div>
+        )}
+        <Button
+          type='button'
+          variant='destructive'
+          size='sm'
+          disabled={requestDetailClearLoading}
+          onClick={() => setShowRequestDetailConfirm(true)}
+        >
+          {requestDetailClearLoading
+            ? t('Clearing...')
+            : t('Clear request detail files')}
+        </Button>
+        <ConfirmDialog
+          open={showRequestDetailConfirm}
+          onOpenChange={setShowRequestDetailConfirm}
+          title={t('Clear all request detail body files?')}
+          desc={t(
+            'This permanently deletes all request/response body files under the request-detail directory on this node. Usage log rows are not affected.'
+          )}
+          destructive
+          isLoading={requestDetailClearLoading}
+          confirmText={t('Clear')}
+          handleConfirm={clearRequestDetailFiles}
+        />
+      </SettingsControlGroup>
 
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('Confirm log cleanup')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {formattedPurgeDate
-                ? t(
-                    'This will permanently remove all log entries created before {{date}}.',
-                    { date: formattedPurgeDate }
-                  )
-                : t(
-                    'This will permanently remove log entries before the selected timestamp.'
-                  )}{' '}
-              {t('This action cannot be undone.')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isStartingLogCleanup}>
-              {t('Cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant='destructive'
-              onClick={handleCleanLogs}
-              disabled={isStartingLogCleanup}
-            >
-              {isStartingLogCleanup ? t('Cleaning...') : t('Delete logs')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Separator />
+
+      <HistoryLogCleanup />
+
+      <Separator />
+
+      <ServerLogFiles />
     </SettingsSection>
   )
 }

@@ -1,3 +1,5 @@
+// ABOUTME: Tests Responses conversion and streaming retry behavior.
+// ABOUTME: Verifies delivered output remains billable after upstream failures.
 package openai
 
 import (
@@ -431,7 +433,7 @@ func TestOaiResponsesToChatStreamHandlerEmptyCompletedAfterCreated(t *testing.T)
 	require.NotContains(t, recorder.Body.String(), `thinking only`)
 }
 
-func TestOaiResponsesToChatStreamHandlerCapacityAfterReasoningSkipsRetry(t *testing.T) {
+func TestOaiResponsesToChatStreamHandlerCapacityAfterReasoningSettlesWithoutRetry(t *testing.T) {
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
 	t.Cleanup(func() { gin.SetMode(oldMode) })
@@ -450,12 +452,13 @@ func TestOaiResponsesToChatStreamHandlerCapacityAfterReasoningSkipsRetry(t *test
 
 	c, recorder, resp, info := newResponsesChatTestContext(t, body, true)
 	usage, err := OaiResponsesToChatStreamHandler(c, info, resp)
-	require.Nil(t, usage)
-	require.NotNil(t, err)
-	require.Equal(t, types.ErrorCodeUpstreamCapacity, err.GetErrorCode())
+	require.Nil(t, err)
+	require.NotNil(t, usage)
+	require.Positive(t, usage.CompletionTokens)
+	require.Equal(t, usage.PromptTokens+usage.CompletionTokens, usage.TotalTokens)
 	require.True(t, info.ClientPayloadWritten)
-	require.True(t, types.IsSkipRetryError(err))
 	require.Contains(t, recorder.Body.String(), `planning search`)
+	require.Contains(t, recorder.Body.String(), `upstream_capacity`)
 }
 
 func TestOaiResponsesToChatStreamHandlerCapacityFailedEvent(t *testing.T) {
