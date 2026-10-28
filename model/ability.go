@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/channellatency"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -82,6 +83,14 @@ func GetChannel(group string, model string, excludedChannelIds map[int]struct{},
 		filters = append(append([]dto.ChannelFilter(nil), filters...), dto.ChannelFilter{Kind: dto.FilterRequestPath, RequestPath: requestPath})
 	}
 	abilities = filterAbilitiesByConstraints(abilities, model, filters)
+	// Match the memory cache when the requested name includes routing modifiers.
+	if normalized := ratio_setting.RoutingMatchModelName(model); len(abilities) == 0 && normalized != "" && normalized != model {
+		err = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, normalized, true).Order("priority DESC, weight DESC").Find(&abilities).Error
+		if err != nil {
+			return nil, err
+		}
+		abilities = filterAbilitiesByConstraints(abilities, model, filters)
+	}
 	if len(abilities) == 0 {
 		return nil, nil
 	}

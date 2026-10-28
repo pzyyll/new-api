@@ -88,9 +88,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	// Buffer lifecycle-only frames so empty/capacity soft fails can still zero-write retry.
 	var lifecycleBuf []string
 
-	flushLifecycle := func() {
+	flushLifecycle := func() error {
 		if len(lifecycleBuf) == 0 {
-			return
+			return nil
 		}
 		for _, raw := range lifecycleBuf {
 			var buffered dto.ResponsesStreamResponse
@@ -100,12 +100,15 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			if buffered.Response != nil {
 				raw = string(rewriteSGLangResponsesCreatedAt(info, []byte(raw), "response.created_at", buffered.Response.CreatedAt))
 			}
-			sendResponsesStreamData(c, buffered, raw)
 			accumulator.Observe(&buffered, common.StringToByteSlice(raw))
+			if err := helper.ResponseChunkData(c, buffered, raw); err != nil {
+				return err
+			}
 		}
 		lifecycleBuf = nil
 		// Once lifecycle frames are flushed the client stream is committed.
 		service.MarkClientPayloadWrittenContext(c, info)
+		return nil
 	}
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
@@ -160,10 +163,20 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		if streamResponse.Response != nil {
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
-		flushLifecycle()
-		sendResponsesStreamData(c, streamResponse, data)
+		if err := flushLifecycle(); err != nil {
+			sr.Stop(err)
+			return
+		}
 		accumulator.Observe(&streamResponse, common.StringToByteSlice(data))
+		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+			sr.Stop(err)
+			return
+		}
 		service.MarkClientPayloadWrittenContext(c, info)
+		if (streamResponse.Type == "response.completed" || streamResponse.Type == "response.done") &&
+			streamResponse.Response != nil && info.StreamStatus.ResponseOutcome() == string(relaycommon.ResponseOutcomeCompleted) {
+			sr.Done()
+		}
 	})
 
 	if streamErr != nil {
