@@ -3,12 +3,14 @@
 package service
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -101,4 +103,30 @@ func TestCacheGetRandomSatisfiedChannelReturnsToEarlierMultiKeyAutoGroup(t *test
 	require.NotNil(t, selected)
 	assert.Equal(t, multiKey.Id, selected.Id)
 	assert.Equal(t, "group-a", selectedGroup)
+}
+
+func TestSharedNativeRouteIdentityFilterContainsAllCandidateKeys(t *testing.T) {
+	registry := jsplugin.NewRegistry()
+	for _, key := range []string{"route-alpha", "route-beta"} {
+		_, err := registry.Register(fmt.Sprintf(`
+export const meta = {apiVersion: 1, key: %q, name: %q, version: "1.0.0", author: {name: "Test"}, models: ["task-model"], fetchMode: "per_task",
+	routes: [{method: "POST", path: "/probe/v1/jobs", type: "submit", decode: "decode", render: "render"}]};
+export const native = {decode() { return {}; }, render() { return {}; }};
+export function buildSubmitRequest() { return {}; }
+export function parseSubmitResponse() { return {}; }
+export function buildQueryRequest() { return {}; }
+export function parseTaskResult() { return {}; }
+`, key, key), jsplugin.Options{})
+		require.NoError(t, err)
+	}
+	generation := registry.Generation()
+	candidates := generation.LookupDeclaredRoutes("POST", "/probe/v1/jobs")
+	require.Len(t, candidates, 2)
+	c, _ := gin.CreateTestContext(nil)
+	c.Set(jsplugin.ContextKeyPinnedRoute, jsplugin.PinnedRoute{Generation: generation, Plugin: candidates[0].Plugin, Route: candidates[0].Route, Candidates: candidates})
+	AppendTaskPluginIdentityFilter(c, "route-alpha")
+	filters := GetChannelConstraints(c).Filters
+	require.Len(t, filters, 1)
+	assert.Equal(t, "route-alpha", filters[0].TaskPluginKey)
+	assert.Equal(t, []string{"route-alpha", "route-beta"}, filters[0].TaskPluginKeys)
 }
