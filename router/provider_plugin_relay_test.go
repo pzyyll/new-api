@@ -2855,6 +2855,136 @@ func TestDeepSeekWebTools(t *testing.T) {
 		requireDeepSeekToolsError(t, outcome)
 	})
 
+	t.Run("JinaReaderFetch", func(t *testing.T) {
+		harness := newRelayHarness(t)
+		plugin := registerRelayPlugin(t, readProviderPlugin(t, "jina-reader"))
+		assert.Equal(t, "https://r.jina.ai", plugin.Meta.BaseURL)
+		channel := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+		channel.Models = constant.DeepSeekFetchModel
+
+		for _, tc := range []struct {
+			name, target, reply, wantBody string
+			upstreamStatus, wantStatus    int
+			anonymous                     bool
+		}{
+			{name: "HTML via 127.0.0.1", target: "https://example.com/page?view=full",
+				reply:    `{"code":200,"status":20000,"data":{"title":"Example","content":"# Example\n\nPage text","warning":"This is a cached snapshot"}}`,
+				wantBody: `{"title":"Example","content":"# Example\n\nPage text"}`, upstreamStatus: 200, wantStatus: 200},
+			{name: "PDF without a title via anonymous localhost", target: "https://example.com/report.pdf", anonymous: true,
+				reply:    `{"code":200,"status":20000,"data":{"content":"# Report\n\nExtracted document text"}}`,
+				wantBody: `{"title":"","content":"# Report\n\nExtracted document text"}`, upstreamStatus: 200, wantStatus: 200},
+			{name: "target 404 despite content", reply: `{"code":200,"data":{"warning":"Other warning\nTarget URL returned error 404: Not Found","content":"Error page"}}`, upstreamStatus: 200, wantStatus: 404},
+			{name: "target forbidden despite content", reply: `{"code":200,"data":{"warning":"Target URL returned error 403: Forbidden","content":"Error page"}}`, upstreamStatus: 200, wantStatus: 403},
+			{name: "empty content", reply: `{"code":200,"data":{"title":"Example","content":" \n"}}`, upstreamStatus: 200, wantStatus: 404},
+			{name: "malformed success", reply: `{"unexpected":true}`, upstreamStatus: 200, wantStatus: 502},
+			{name: "rate limited", reply: `upstream diagnostic`, upstreamStatus: 429, wantStatus: 429},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				target := tc.target
+				if target == "" {
+					target = "https://example.com/"
+				}
+				baseURL := harness.upstream.URL
+				settings := dto.ChannelOtherSettings{}
+				if tc.anonymous {
+					baseURL = strings.Replace(baseURL, "127.0.0.1", "localhost", 1)
+					settings.PluginConfig = []byte(`{"anonymous":true}`)
+				}
+				channel.SetSetting(dto.ChannelSettings{TaskPluginKey: "jina-reader"})
+				channel.SetOtherSettings(settings)
+				channel.BaseURL = &baseURL
+				harness.install(t, channel)
+				harness.upstream.respond = respondWith(tc.upstreamStatus, "application/json", tc.reply)
+				harness.upstream.reset()
+
+				outcome := harness.post(t, deepSeekToolsFetchPath, fmt.Sprintf(`{"url":%q,"engine":"browser"}`, target))
+				assert.Equal(t, tc.wantStatus, outcome.status, outcome.body)
+				requests := harness.upstream.captured()
+				require.Len(t, requests, 1)
+				assert.Equal(t, http.MethodPost, requests[0].Method)
+				assert.Equal(t, "/", requests[0].URL)
+				assert.Equal(t, "application/json", requests[0].Header.Get("Accept"))
+				if tc.anonymous {
+					assert.NotContains(t, requests[0].Header, "Authorization")
+				} else {
+					assert.Equal(t, "Bearer sk-tools", requests[0].Header.Get("Authorization"))
+				}
+				assert.JSONEq(t, fmt.Sprintf(`{"url":%q}`, target), requests[0].Body)
+				if tc.wantBody != "" {
+					assert.JSONEq(t, tc.wantBody, outcome.body)
+					assert.Equal(t, deepSeekToolsQuota, outcome.quota)
+					return
+				}
+				assert.Zero(t, outcome.quota)
+				assert.NotContains(t, outcome.body, "upstream diagnostic")
+				requireDeepSeekToolsError(t, outcome)
+			})
+		}
+
+		t.Run("anonymous mode refuses an Authorization override", func(t *testing.T) {
+			channel.SetOtherSettings(dto.ChannelOtherSettings{PluginConfig: []byte(`{"anonymous":true}`)})
+			channel.HeaderOverride = common.GetPointer(`{"Authorization":"Bearer override-secret"}`)
+			harness.install(t, channel)
+			harness.upstream.reset()
+			outcome := harness.post(t, deepSeekToolsFetchPath, `{"url":"https://example.com/"}`)
+			assert.Equal(t, http.StatusInternalServerError, outcome.status, outcome.body)
+			assert.Empty(t, harness.upstream.captured())
+			assert.NotContains(t, outcome.body, "override-secret")
+		})
+	})
+
+	t.Run("FirecrawlFetch", func(t *testing.T) {
+		harness := newRelayHarness(t)
+		plugin := registerRelayPlugin(t, readProviderPlugin(t, "firecrawl"))
+		assert.Equal(t, "https://api.firecrawl.dev", plugin.Meta.BaseURL)
+		channel := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+		channel.Models = constant.DeepSeekFetchModel
+		channel.SetSetting(dto.ChannelSettings{TaskPluginKey: "firecrawl"})
+		localURL := strings.Replace(harness.upstream.URL, "127.0.0.1", "localhost", 1)
+		channel.BaseURL = &localURL
+		harness.install(t, channel)
+
+		const requestBody = `{"url":"https://example.com/report.pdf","formats":["html"],"onlyMainContent":false}`
+		for _, tc := range []struct {
+			name, reply, wantBody      string
+			upstreamStatus, wantStatus int
+		}{
+			{name: "Markdown and title", reply: `{"success":true,"data":{"markdown":"# Report\n\nDocument text","metadata":{"title":"Report","statusCode":200}}}`,
+				wantBody: `{"title":"Report","content":"# Report\n\nDocument text"}`, upstreamStatus: 200, wantStatus: 200},
+			{name: "Markdown without title", reply: `{"success":true,"data":{"markdown":"Example page"}}`,
+				wantBody: `{"title":"","content":"Example page"}`, upstreamStatus: 200, wantStatus: 200},
+			{name: "target error is not billed as content", reply: `{"success":true,"data":{"markdown":"Not found","metadata":{"statusCode":404}}}`, upstreamStatus: 200, wantStatus: 404},
+			{name: "forbidden target", reply: `{"success":true,"data":{"markdown":"Access denied","metadata":{"statusCode":403}}}`, upstreamStatus: 200, wantStatus: 403},
+			{name: "blank Markdown", reply: `{"success":true,"data":{"markdown":" \n"}}`, upstreamStatus: 200, wantStatus: 404},
+			{name: "success false despite HTTP 200", reply: `{"success":false,"code":"SCRAPE_DNS_RESOLUTION_ERROR","error":"vendor diagnostic"}`, upstreamStatus: 200, wantStatus: 502},
+			{name: "invalid response", reply: `not JSON`, upstreamStatus: 200, wantStatus: 502},
+			{name: "missing Markdown field", reply: `{"success":true,"data":{"html":"<p>Unexpected</p>"}}`, upstreamStatus: 200, wantStatus: 502},
+			{name: "rate limited", reply: `{"success":false,"error":"vendor diagnostic"}`, upstreamStatus: 429, wantStatus: 429},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				harness.upstream.respond = respondWith(tc.upstreamStatus, "application/json", tc.reply)
+				harness.upstream.reset()
+
+				outcome := harness.post(t, deepSeekToolsFetchPath, requestBody)
+				assert.Equal(t, tc.wantStatus, outcome.status, outcome.body)
+				requests := harness.upstream.captured()
+				require.Len(t, requests, 1)
+				assert.Equal(t, http.MethodPost, requests[0].Method)
+				assert.Equal(t, "/v2/scrape", requests[0].URL)
+				assert.Equal(t, "Bearer sk-tools", requests[0].Header.Get("Authorization"))
+				assert.JSONEq(t, `{"url":"https://example.com/report.pdf","formats":["markdown"],"onlyMainContent":true}`, requests[0].Body)
+				if tc.wantBody != "" {
+					assert.JSONEq(t, tc.wantBody, outcome.body)
+					assert.Equal(t, deepSeekToolsQuota, outcome.quota)
+					return
+				}
+				assert.Zero(t, outcome.quota)
+				assert.NotContains(t, outcome.body, "vendor diagnostic")
+				requireDeepSeekToolsError(t, outcome)
+			})
+		}
+	})
+
 	// Exa, Tavily and the official channel serve the same group and paths, so
 	// selection follows priority and a failure falls through to the next
 	// channel; the successful attempt is charged once.
