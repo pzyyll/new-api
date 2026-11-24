@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -2312,4 +2314,791 @@ export function ingress(ctx, req) {
 	var task model.Midjourney
 	require.NoError(t, model.DB.Order("id DESC").First(&task).Error)
 	assert.Equal(t, "mail [email] a cat", task.Prompt)
+}
+
+// DeepSeek Search and Fetch web tools: the host routes the two tool paths
+// to their own models, validates the fields, and lets Exa and Tavily provider
+// plugins convert them.
+const (
+	deepSeekToolsSearchPath = "/v1/tools/search"
+	deepSeekToolsFetchPath  = "/v1/tools/fetch"
+	deepSeekToolsQuota      = 375
+
+	deepSeekWebToolsSearchReply = `{"results":[{"title":"DeepSeek","url":"https://www.deepseek.com/","snippet":"DeepSeek","summary":"DeepSeek","content":"","site_name":null,"site_icon":null,"date":null,"authority":-1,"rerank_score":2.1}]}`
+	deepSeekWebToolsFetchReply  = `{"title":"Example Domain","content":"# Example Domain"}`
+)
+
+// deepSeekToolsChannel serves both tool paths under the routing names the
+// distributor assigns to them.
+func (h *relayHarness) deepSeekToolsChannel(channelType int) *model.Channel {
+	channel := h.newChannel(channelType, "sk-tools")
+	channel.Models = constant.DeepSeekSearchModel + "," + constant.DeepSeekFetchModel
+	return channel
+}
+
+// deepSeekToolsUpstream answers the two tool paths as the DeepSeek API does.
+func deepSeekToolsUpstream(w http.ResponseWriter, _ int, request capturedRequest) {
+	w.Header().Set("Content-Type", "application/json")
+	if strings.HasSuffix(request.URL, deepSeekToolsFetchPath) {
+		_, _ = io.WriteString(w, deepSeekWebToolsFetchReply)
+		return
+	}
+	_, _ = io.WriteString(w, deepSeekWebToolsSearchReply)
+}
+
+// readProviderPlugin loads a provider plugin from its source directory, so the
+// tests run the file an administrator uploads.
+func readProviderPlugin(t *testing.T, directory string) string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "plugins", "providers", directory, "plugin.js"))
+	require.NoError(t, err)
+	return string(source)
+}
+
+// newToolsHarness installs a type-61 channel bound to the provider plugin at
+// plugins/providers/<directory>, which serves both tool paths.
+func newToolsHarness(t *testing.T, pluginKey, directory string) *relayHarness {
+	t.Helper()
+	harness := newRelayHarness(t)
+	registerRelayPlugin(t, readProviderPlugin(t, directory))
+	channel := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+	channel.SetSetting(dto.ChannelSettings{TaskPluginKey: pluginKey})
+	harness.install(t, channel)
+	return harness
+}
+
+// installChannels makes channels the stored set, in the order selection tries
+// them: the highest priority first.
+func (h *relayHarness) installChannels(t *testing.T, channels ...*model.Channel) {
+	t.Helper()
+	require.NoError(t, model.DB.Where("1 = 1").Delete(&model.Ability{}).Error)
+	require.NoError(t, model.DB.Where("1 = 1").Delete(&model.Channel{}).Error)
+	for _, channel := range channels {
+		channel.Id = 0
+		require.NoError(t, channel.Insert())
+	}
+	model.InitChannelCache()
+}
+
+// requireDeepSeekToolsError checks the DeepSeek error envelope: no parameter
+// name, and the message the host would return.
+func requireDeepSeekToolsError(t *testing.T, outcome relayOutcome) {
+	t.Helper()
+	var payload struct {
+		Error map[string]json.RawMessage `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(outcome.body), &payload), outcome.body)
+	require.Contains(t, payload.Error, "message")
+	require.Contains(t, payload.Error, "param")
+	assert.Equal(t, "null", string(payload.Error["param"]), outcome.body)
+	require.Contains(t, payload.Error, "type")
+	require.Contains(t, payload.Error, "code")
+}
+
+func TestDeepSeekWebTools(t *testing.T) {
+	t.Run("Validation", func(t *testing.T) {
+		harness := newRelayHarness(t)
+		channel := harness.deepSeekToolsChannel(constant.ChannelTypeDeepSeek)
+		channel.Models += "," + relayTestModel
+		harness.install(t, channel)
+		harness.upstream.respond = deepSeekToolsUpstream
+
+		validSearch := `{"query":"深空探测","count":2,"ori_question":null,"need_content":false,"future_field":{"nested":true}}`
+		longQuery := `{"query":"` + strings.Repeat("深", 128) + `"}`
+		for name, tc := range map[string]struct {
+			path, body string
+			valid      bool
+		}{
+			"malformed JSON":                   {path: deepSeekToolsSearchPath, body: `{"query":`},
+			"non-object body":                  {path: deepSeekToolsSearchPath, body: `["deepseek"]`},
+			"string body":                      {path: deepSeekToolsSearchPath, body: `"deepseek"`},
+			"null body":                        {path: deepSeekToolsSearchPath, body: `null`},
+			"missing query":                    {path: deepSeekToolsSearchPath, body: `{}`},
+			"empty query":                      {path: deepSeekToolsSearchPath, body: `{"query":""}`},
+			"blank query":                      {path: deepSeekToolsSearchPath, body: `{"query":"   "}`},
+			"null query":                       {path: deepSeekToolsSearchPath, body: `{"query":null}`},
+			"numeric query":                    {path: deepSeekToolsSearchPath, body: `{"query":42}`},
+			"query over 128 characters":        {path: deepSeekToolsSearchPath, body: `{"query":"` + strings.Repeat("深", 129) + `"}`},
+			"count zero":                       {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","count":0}`},
+			"count over 50":                    {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","count":51}`},
+			"fractional count":                 {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","count":1.5}`},
+			"string count":                     {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","count":"3"}`},
+			"null count":                       {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","count":null}`},
+			"null localization":                {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","localization":null}`},
+			"numeric localization":             {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","localization":1}`},
+			"string need_content":              {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","need_content":"true"}`},
+			"null need_content":                {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","need_content":null}`},
+			"numeric ori_question":             {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","ori_question":5}`},
+			"ori_question over 128":            {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","ori_question":"` + strings.Repeat("问", 129) + `"}`},
+			"missing url":                      {path: deepSeekToolsFetchPath, body: `{}`},
+			"empty url":                        {path: deepSeekToolsFetchPath, body: `{"url":""}`},
+			"null url":                         {path: deepSeekToolsFetchPath, body: `{"url":null}`},
+			"numeric url":                      {path: deepSeekToolsFetchPath, body: `{"url":42}`},
+			"relative url":                     {path: deepSeekToolsFetchPath, body: `{"url":"example.com/page"}`},
+			"scheme-relative url":              {path: deepSeekToolsFetchPath, body: `{"url":"//example.com/page"}`},
+			"ftp url":                          {path: deepSeekToolsFetchPath, body: `{"url":"ftp://example.com/page"}`},
+			"url without host":                 {path: deepSeekToolsFetchPath, body: `{"url":"https:///page"}`},
+			"url with credentials":             {path: deepSeekToolsFetchPath, body: `{"url":"https://user:secret@example.com/page"}`},
+			"url over 8192 characters":         {path: deepSeekToolsFetchPath, body: `{"url":"https://example.com/` + strings.Repeat("a", 8192) + `"}`},
+			"128-character query":              {path: deepSeekToolsSearchPath, body: longQuery, valid: true},
+			"optional null and unknown fields": {path: deepSeekToolsSearchPath, body: validSearch, valid: true},
+			"body model and group are ignored": {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","model":"gpt-4o-mini","group":"vip"}`, valid: true},
+			"non-string model is ignored":      {path: deepSeekToolsSearchPath, body: `{"query":"deepseek","model":42}`, valid: true},
+			"object model is ignored":          {path: deepSeekToolsFetchPath, body: `{"url":"https://example.com/page","model":{"name":"ignored"}}`, valid: true},
+			"fetch with unknown field":         {path: deepSeekToolsFetchPath, body: `{"url":"https://example.com/page","future_field":1}`, valid: true},
+		} {
+			t.Run(name, func(t *testing.T) {
+				harness.upstream.reset()
+				outcome := harness.post(t, tc.path, tc.body)
+				requests := harness.upstream.captured()
+				if !tc.valid {
+					assert.Equal(t, http.StatusBadRequest, outcome.status, outcome.body)
+					assert.Empty(t, requests, "an invalid request never reaches the upstream")
+					assert.Zero(t, outcome.quota)
+					requireDeepSeekToolsError(t, outcome)
+					return
+				}
+				require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+				require.Len(t, requests, 1)
+				assert.Equal(t, tc.path, requests[0].URL)
+				assert.Equal(t, tc.body, requests[0].Body, "a valid body reaches the upstream unchanged")
+				assert.Equal(t, deepSeekToolsQuota, outcome.quota)
+			})
+		}
+
+		// A channel model mapping must not rewrite the body or reach the
+		// vendor: the routing name is no vendor model name.
+		mapping := `{"` + constant.DeepSeekSearchModel + `":"vendor-search"}`
+		channel.ModelMapping = &mapping
+		harness.install(t, channel)
+		harness.upstream.reset()
+		mappedBody := `{"query":"deepseek","model":"keep-me"}`
+		mapped := harness.post(t, deepSeekToolsSearchPath, mappedBody)
+		require.Equal(t, http.StatusOK, mapped.status, mapped.body)
+		mappedRequests := harness.upstream.captured()
+		require.Len(t, mappedRequests, 1)
+		assert.Equal(t, mappedBody, mappedRequests[0].Body)
+
+		// Other protocols keep the OpenAI error envelope, where an absent
+		// parameter is an empty string rather than null.
+		other := harness.post(t, "/v1/embeddings", `{"model":"`+relayTestModel+`"}`)
+		require.GreaterOrEqual(t, other.status, http.StatusBadRequest)
+		var otherError struct {
+			Error map[string]json.RawMessage `json:"error"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(other.body), &otherError), other.body)
+		assert.Equal(t, `""`, string(otherError.Error["param"]), other.body)
+	})
+
+	t.Run("ExaSearch", func(t *testing.T) {
+		harness := newToolsHarness(t, "exa-web-tools", "exa")
+		const vendorReply = `{"requestId":"req_exa","results":[
+			{"id":"https://www.deepseek.com/","title":"DeepSeek","url":"https://www.deepseek.com/","publishedDate":"2024-05-01T00:00:00.000Z","author":"DeepSeek","score":0.91,"text":"# DeepSeek\nDeepSeek builds models.","highlights":["DeepSeek is an AI research company"],"summary":"DeepSeek builds AI models","favicon":"https://www.deepseek.com/favicon.ico"},
+			{"id":"https://chat.deepseek.com/","title":"DeepSeek Chat","url":"https://chat.deepseek.com/","score":0.5,"summary":"Chat with DeepSeek","highlights":[]},
+			{"id":"bad","title":"Broken","url":"not a url","score":2}]}`
+		const summaries = `"contents":{"highlights":true,"summary":true}`
+		const bothResults = `{"results":[
+					{"rerank_score":2.73,"title":"DeepSeek","url":"https://www.deepseek.com/","snippet":"DeepSeek is an AI research company","summary":"DeepSeek builds AI models","content":"","site_name":null,"site_icon":"https://www.deepseek.com/favicon.ico","date":"2024-05-01T00:00:00Z","authority":-1},
+					{"rerank_score":1.5,"title":"DeepSeek Chat","url":"https://chat.deepseek.com/","snippet":"Chat with DeepSeek","summary":"Chat with DeepSeek","content":"","site_name":null,"site_icon":null,"date":null,"authority":-1}]}`
+		for name, tc := range map[string]struct {
+			body, reply, wantUpstream, wantClient string
+			wantQuota                             int
+		}{
+			"default count and highlights": {
+				body: `{"query":"deepseek"}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","numResults":10,` + summaries + `}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"count, content and ori_question": {
+				body: `{"query":"deepseek 深度求索","count":1,"ori_question":"如何评价 DeepSeek","need_content":true}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek 深度求索","numResults":1,"contents":{"highlights":true,"summary":{"query":"如何评价 DeepSeek"},"text":{"maxCharacters":10000}}}`,
+				wantClient: `{"results":[
+					{"rerank_score":2.73,"title":"DeepSeek","url":"https://www.deepseek.com/","snippet":"DeepSeek is an AI research company","summary":"DeepSeek builds AI models","content":"# DeepSeek\nDeepSeek builds models.","site_name":null,"site_icon":"https://www.deepseek.com/favicon.ico","date":"2024-05-01T00:00:00Z","authority":-1}]}`,
+				wantQuota: deepSeekToolsQuota,
+			},
+			"site and date filters": {
+				body: `{"query":"site:deepseek.com OR site:example.com deepseek after:2024-01-01","count":5}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","numResults":5,` + summaries + `,"includeDomains":["deepseek.com","example.com"],"startPublishedDate":"2024-01-01T00:00:00.000Z"}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"excluded site": {
+				body: `{"query":"deepseek -site:spam.example "}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","numResults":10,` + summaries + `,"excludeDomains":["spam.example"]}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"year filters": {
+				body: `{"query":"deepseek after:2024 before:2026"}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","numResults":10,` + summaries + `,"startPublishedDate":"2024-01-01T00:00:00.000Z","endPublishedDate":"2026-01-01T00:00:00.000Z"}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"quoted operator and invalid date stay": {
+				body: `{"query":"\"site:example.com\" deepseek after:2024-02-30"}`, reply: vendorReply,
+				wantUpstream: `{"query":"\"site:example.com\" deepseek after:2024-02-30","numResults":10,` + summaries + `}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"empty results": {
+				body: `{"query":"site:none.invalid deepseek"}`, reply: `{"requestId":"req_exa","results":[]}`,
+				wantUpstream: `{"query":"deepseek","numResults":10,` + summaries + `,"includeDomains":["none.invalid"]}`,
+				wantClient:   `{"results":[]}`,
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, tc.reply)
+				}
+				harness.upstream.reset()
+				outcome := harness.post(t, deepSeekToolsSearchPath, tc.body)
+				require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+				requests := harness.upstream.captured()
+				require.Len(t, requests, 1)
+				assert.Equal(t, "/search", requests[0].URL)
+				assert.Equal(t, "sk-tools", requests[0].Header.Get("x-api-key"))
+				assert.Empty(t, requests[0].Header.Get("Authorization"), "the client's gateway token never reaches the vendor")
+				assert.JSONEq(t, tc.wantUpstream, requests[0].Body)
+				assert.JSONEq(t, tc.wantClient, outcome.body)
+				assert.Equal(t, tc.wantQuota, outcome.quota)
+			})
+		}
+	})
+
+	t.Run("ExaFetch", func(t *testing.T) {
+		harness := newToolsHarness(t, "exa-web-tools", "exa")
+		const page = "https://example.com/page"
+		for name, tc := range map[string]struct {
+			reply, wantClient string
+			status, wantQuota int
+			upstreamStatus    int
+		}{
+			"content with title": {
+				reply:      `{"results":[{"id":"` + page + `","url":"` + page + `","title":"Example Domain","text":"# Example Domain"}]}`,
+				status:     http.StatusOK,
+				wantClient: `{"title":"Example Domain","content":"# Example Domain"}`,
+				wantQuota:  deepSeekToolsQuota,
+			},
+			"content without title": {
+				reply:      `{"results":[{"url":"` + page + `","text":"Page body"}]}`,
+				status:     http.StatusOK,
+				wantClient: `{"title":"","content":"Page body"}`,
+				wantQuota:  deepSeekToolsQuota,
+			},
+			"policy refusal": {
+				reply:  `{"results":[],"statuses":[{"id":"` + page + `","status":"error","error":{"tag":"CRAWL_BLOCKED","description":"blocked by the site"}}]}`,
+				status: http.StatusForbidden,
+			},
+			"policy refusal by status code": {
+				reply:  `{"results":[],"statuses":[{"id":"` + page + `","status":"error","error":{"httpStatusCode":403}}]}`,
+				status: http.StatusForbidden,
+			},
+			"upstream error details stay private": {
+				reply: `{"error":"vendor diagnostic"}`, upstreamStatus: http.StatusInternalServerError,
+				status: http.StatusInternalServerError,
+			},
+			"unreadable page": {
+				reply:  `{"results":[],"statuses":[{"id":"` + page + `","status":"error","error":{"tag":"CRAWL_NOT_FOUND"}}]}`,
+				status: http.StatusNotFound,
+			},
+			"empty text": {
+				reply:  `{"results":[{"url":"` + page + `","text":""}]}`,
+				status: http.StatusNotFound,
+			},
+			"unrecognized schema": {
+				reply:  `{"unexpected":true}`,
+				status: http.StatusBadGateway,
+			},
+			"broken JSON": {
+				reply:  `not json`,
+				status: http.StatusBadGateway,
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					if tc.upstreamStatus != 0 {
+						w.WriteHeader(tc.upstreamStatus)
+					}
+					_, _ = io.WriteString(w, tc.reply)
+				}
+				harness.upstream.reset()
+				outcome := harness.post(t, deepSeekToolsFetchPath, `{"url":"`+page+`"}`)
+				assert.Equal(t, tc.status, outcome.status, outcome.body)
+				assert.NotContains(t, outcome.body, "vendor diagnostic")
+				requests := harness.upstream.captured()
+				require.Len(t, requests, 1)
+				assert.Equal(t, "/contents", requests[0].URL)
+				assert.Equal(t, "sk-tools", requests[0].Header.Get("x-api-key"))
+				assert.JSONEq(t, `{"urls":["`+page+`"],"text":true}`, requests[0].Body)
+				assert.Equal(t, tc.wantQuota, outcome.quota)
+				if tc.wantClient == "" {
+					requireDeepSeekToolsError(t, outcome)
+					return
+				}
+				assert.JSONEq(t, tc.wantClient, outcome.body)
+			})
+		}
+	})
+
+	// A Fetch page the target rejects or cannot read is answered about that
+	// page, so the request stays on the channel that fetched it: another
+	// channel would ask the same page again. Both the official channel and a
+	// provider plugin channel behave the same.
+	t.Run("FetchTerminalErrors", func(t *testing.T) {
+		previousRetry, previousSameChannel := common.RetryTimes, common.SameChannelRetryTimes
+		t.Cleanup(func() { common.RetryTimes, common.SameChannelRetryTimes = previousRetry, previousSameChannel })
+		common.RetryTimes, common.SameChannelRetryTimes = 2, 0
+		for name, tc := range map[string]struct {
+			status int
+			plugin string
+		}{
+			"official 403": {status: http.StatusForbidden},
+			"official 404": {status: http.StatusNotFound},
+			"plugin 403":   {status: http.StatusForbidden, plugin: "exa-web-tools"},
+			"plugin 404":   {status: http.StatusNotFound, plugin: "exa-web-tools"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				harness := newRelayHarness(t)
+				primary := harness.deepSeekToolsChannel(constant.ChannelTypeDeepSeek)
+				if tc.plugin != "" {
+					registerRelayPlugin(t, readProviderPlugin(t, "exa"))
+					primary = harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+					primary.SetSetting(dto.ChannelSettings{TaskPluginKey: tc.plugin})
+				}
+				primary.Priority, primary.Name = common.GetPointer(int64(10)), "first"
+				fallback := harness.deepSeekToolsChannel(constant.ChannelTypeDeepSeek)
+				fallback.Priority, fallback.Name = common.GetPointer(int64(0)), "fallback"
+				harness.installChannels(t, primary, fallback)
+				harness.upstream.respond = func(w http.ResponseWriter, attempt int, request capturedRequest) {
+					if attempt > 1 {
+						deepSeekToolsUpstream(w, attempt, request)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(tc.status)
+					_, _ = io.WriteString(w, `{"error":{"message":"the page cannot be read","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}`)
+				}
+
+				outcome := harness.post(t, deepSeekToolsFetchPath, `{"url":"https://example.com/page"}`)
+
+				assert.Equal(t, tc.status, outcome.status, outcome.body)
+				assert.Len(t, harness.upstream.captured(), 1, "the fallback channel is never asked")
+				assert.Zero(t, outcome.quota)
+				requireDeepSeekToolsError(t, outcome)
+			})
+		}
+	})
+
+	t.Run("TavilySearch", func(t *testing.T) {
+		harness := newToolsHarness(t, "tavily-web-tools", "tavily")
+		const vendorReply = `{"query":"deepseek","results":[
+			{"title":"DeepSeek","url":"https://www.deepseek.com/","content":"DeepSeek is an AI company.","score":0.87,"raw_content":"# DeepSeek full page","published_date":"Wed, 01 May 2024 00:00:00 GMT","favicon":"https://www.deepseek.com/favicon.ico"},
+			{"title":"Broken","url":"not a url","content":"x","score":0.1},
+			{"title":"DeepSeek Chat","url":"https://chat.deepseek.com/","content":"Chat with DeepSeek","score":0.5}],"response_time":0.31}`
+		const bothResults = `{"results":[
+			{"rerank_score":2.61,"title":"DeepSeek","url":"https://www.deepseek.com/","snippet":"DeepSeek is an AI company.","summary":"DeepSeek is an AI company.","content":"","site_name":null,"site_icon":"https://www.deepseek.com/favicon.ico","date":"2024-05-01T00:00:00Z","authority":-1},
+			{"rerank_score":1.5,"title":"DeepSeek Chat","url":"https://chat.deepseek.com/","snippet":"Chat with DeepSeek","summary":"Chat with DeepSeek","content":"","site_name":null,"site_icon":null,"date":null,"authority":-1}]}`
+		longContent, longSnippet := strings.Repeat("t", 250), strings.Repeat("t", 200)
+		for name, tc := range map[string]struct {
+			body, reply, wantUpstream, wantClient string
+			wantQuota                             int
+		}{
+			"default count and summary": {
+				body: `{"query":"deepseek"}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","max_results":10,"include_raw_content":false,"include_favicon":true,"include_published_date":true}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"count 50 is capped and content is read": {
+				body: `{"query":"deepseek","count":50,"need_content":true}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","max_results":20,"include_raw_content":"markdown","include_favicon":true,"include_published_date":true}`,
+				wantClient: `{"results":[
+					{"rerank_score":2.61,"title":"DeepSeek","url":"https://www.deepseek.com/","snippet":"DeepSeek is an AI company.","summary":"DeepSeek is an AI company.","content":"# DeepSeek full page","site_name":null,"site_icon":"https://www.deepseek.com/favicon.ico","date":"2024-05-01T00:00:00Z","authority":-1},
+					{"rerank_score":1.5,"title":"DeepSeek Chat","url":"https://chat.deepseek.com/","snippet":"Chat with DeepSeek","summary":"Chat with DeepSeek","content":"","site_name":null,"site_icon":null,"date":null,"authority":-1}]}`,
+				wantQuota: deepSeekToolsQuota,
+			},
+			"explicit need_content false": {
+				body: `{"query":"deepseek","count":3,"need_content":false}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","max_results":3,"include_raw_content":false,"include_favicon":true,"include_published_date":true}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"long content is cut to a snippet": {
+				body:         `{"query":"deepseek"}`,
+				reply:        `{"results":[{"title":"Long","url":"https://example.com/","content":"` + longContent + `","score":0.4}]}`,
+				wantUpstream: `{"query":"deepseek","max_results":10,"include_raw_content":false,"include_favicon":true,"include_published_date":true}`,
+				wantClient:   `{"results":[{"rerank_score":1.2,"title":"Long","url":"https://example.com/","snippet":"` + longSnippet + `","summary":"` + longContent + `","content":"","site_name":null,"site_icon":null,"date":null,"authority":-1}]}`,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"site and date filters": {
+				body: `{"query":"site:deepseek.com OR site:example.com deepseek after:2024-01-01 before:2026"}`, reply: vendorReply,
+				wantUpstream: `{"query":"deepseek","max_results":10,"include_raw_content":false,"include_favicon":true,"include_published_date":true,"include_domains":["deepseek.com","example.com"],"start_date":"2024-01-01","end_date":"2026-01-01","filter_by_published_date":true}`,
+				wantClient:   bothResults,
+				wantQuota:    deepSeekToolsQuota,
+			},
+			"no parseable results is an upstream error": {
+				body: `{"query":"deepseek"}`, reply: `{"results":[{"title":"Missing URL"}]}`,
+				wantUpstream: `{"query":"deepseek","max_results":10,"include_raw_content":false,"include_favicon":true,"include_published_date":true}`,
+			},
+			"empty results": {
+				body: `{"query":"deepseek"}`, reply: `{"query":"deepseek","results":[],"response_time":0.01}`,
+				wantUpstream: `{"query":"deepseek","max_results":10,"include_raw_content":false,"include_favicon":true,"include_published_date":true}`,
+				wantClient:   `{"results":[]}`,
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, tc.reply)
+				}
+				harness.upstream.reset()
+				outcome := harness.post(t, deepSeekToolsSearchPath, tc.body)
+				requests := harness.upstream.captured()
+				require.Len(t, requests, 1)
+				assert.Equal(t, "/search", requests[0].URL)
+				assert.Equal(t, "Bearer sk-tools", requests[0].Header.Get("Authorization"))
+				assert.JSONEq(t, tc.wantUpstream, requests[0].Body)
+				assert.Equal(t, tc.wantQuota, outcome.quota)
+				if tc.wantClient == "" {
+					assert.Equal(t, http.StatusBadGateway, outcome.status, outcome.body)
+					requireDeepSeekToolsError(t, outcome)
+					return
+				}
+				require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+				assert.JSONEq(t, tc.wantClient, outcome.body)
+			})
+		}
+	})
+
+	t.Run("TavilyFetch", func(t *testing.T) {
+		harness := newToolsHarness(t, "tavily-web-tools", "tavily")
+		const page = "https://example.com/page"
+		for name, tc := range map[string]struct {
+			reply, wantClient string
+			status, wantQuota int
+		}{
+			"content": {
+				reply:      `{"results":[{"url":"` + page + `","raw_content":"# Example Domain"}],"failed_results":[],"response_time":0.1}`,
+				status:     http.StatusOK,
+				wantClient: `{"title":"","content":"# Example Domain"}`,
+				wantQuota:  deepSeekToolsQuota,
+			},
+			"unreadable page": {
+				reply:  `{"results":[],"failed_results":[{"url":"` + page + `","error":"Failed to fetch the URL"}],"response_time":0.1}`,
+				status: http.StatusNotFound,
+			},
+			"blocked page": {
+				reply:  `{"results":[],"failed_results":[{"url":"` + page + `","error":"Access blocked by the target site"}],"response_time":0.1}`,
+				status: http.StatusForbidden,
+			},
+			"rate limited without a JSON error": {
+				reply:  "rate limit exceeded",
+				status: http.StatusTooManyRequests,
+			},
+			"upstream failure": {
+				reply:  `{"detail":{"error":"vendor diagnostic"}}`,
+				status: http.StatusInternalServerError,
+			},
+			"quota 432": {
+				reply:  `{"detail":{"error":"plan limit reached"}}`,
+				status: http.StatusPaymentRequired,
+			},
+			"unrecognized schema": {
+				reply:  `{"unexpected":true}`,
+				status: http.StatusBadGateway,
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				upstreamStatus := tc.status
+				switch name {
+				case "quota 432":
+					upstreamStatus = 432
+				case "content", "unreadable page", "blocked page", "unrecognized schema":
+					upstreamStatus = http.StatusOK
+				}
+				harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(upstreamStatus)
+					_, _ = io.WriteString(w, tc.reply)
+				}
+				harness.upstream.reset()
+				outcome := harness.post(t, deepSeekToolsFetchPath, `{"url":"`+page+`"}`)
+				assert.Equal(t, tc.status, outcome.status, outcome.body)
+				requests := harness.upstream.captured()
+				require.Len(t, requests, 1)
+				assert.Equal(t, "/extract", requests[0].URL)
+				assert.Equal(t, "Bearer sk-tools", requests[0].Header.Get("Authorization"))
+				assert.NotContains(t, outcome.body, "vendor diagnostic")
+				assert.JSONEq(t, `{"urls":["`+page+`"],"format":"markdown"}`, requests[0].Body)
+				assert.Equal(t, tc.wantQuota, outcome.quota)
+				if tc.wantClient == "" {
+					requireDeepSeekToolsError(t, outcome)
+					return
+				}
+				assert.JSONEq(t, tc.wantClient, outcome.body)
+			})
+		}
+
+		// The other exhausted-plan status maps to the same payment error.
+		harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(433)
+			_, _ = io.WriteString(w, `{"detail":{"error":"plan limit reached"}}`)
+		}
+		harness.upstream.reset()
+		outcome := harness.post(t, deepSeekToolsFetchPath, `{"url":"`+page+`"}`)
+		assert.Equal(t, http.StatusPaymentRequired, outcome.status, outcome.body)
+		assert.Zero(t, outcome.quota)
+		requireDeepSeekToolsError(t, outcome)
+	})
+
+	// Exa, Tavily and the official channel serve the same group and paths, so
+	// selection follows priority and a failure falls through to the next
+	// channel; the successful attempt is charged once.
+	t.Run("Routing", func(t *testing.T) {
+		previousRetry, previousSameChannel := common.RetryTimes, common.SameChannelRetryTimes
+		t.Cleanup(func() { common.RetryTimes, common.SameChannelRetryTimes = previousRetry, previousSameChannel })
+		// Two cross-channel retries reach the third channel; same-channel
+		// retries stay off so each hop is the next channel.
+		common.RetryTimes, common.SameChannelRetryTimes = 2, 0
+
+		harness := newRelayHarness(t)
+		registerRelayPlugin(t, readProviderPlugin(t, "exa"))
+		registerRelayPlugin(t, readProviderPlugin(t, "tavily"))
+		exa := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+		exa.SetSetting(dto.ChannelSettings{TaskPluginKey: "exa-web-tools"})
+		exa.Key, exa.Priority, exa.Name = "sk-exa", common.GetPointer(int64(30)), "exa"
+		tavily := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+		tavily.SetSetting(dto.ChannelSettings{TaskPluginKey: "tavily-web-tools"})
+		tavily.Key, tavily.Priority, tavily.Name = "sk-tavily", common.GetPointer(int64(20)), "tavily"
+		official := harness.deepSeekToolsChannel(constant.ChannelTypeDeepSeek)
+		official.Key, official.Priority, official.Name = "sk-deepseek", common.GetPointer(int64(10)), "official"
+		harness.installChannels(t, exa, tavily, official)
+
+		harness.upstream.respond = func(w http.ResponseWriter, _ int, request capturedRequest) {
+			w.Header().Set("Content-Type", "application/json")
+			if request.Header.Get("x-api-key") == "sk-exa" {
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = io.WriteString(w, `{"error":"rate limit exceeded"}`)
+				return
+			}
+			if request.Header.Get("Authorization") == "Bearer sk-tavily" {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = io.WriteString(w, `{"detail":{"error":"service unavailable"}}`)
+				return
+			}
+			_, _ = io.WriteString(w, deepSeekWebToolsSearchReply)
+		}
+
+		outcome := harness.post(t, deepSeekToolsSearchPath, `{"query":"deepseek"}`)
+		require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+		requests := harness.upstream.captured()
+		require.Len(t, requests, 3)
+		assert.Equal(t, "sk-exa", requests[0].Header.Get("x-api-key"))
+		assert.Equal(t, "Bearer sk-tavily", requests[1].Header.Get("Authorization"))
+		assert.Equal(t, "Bearer sk-deepseek", requests[2].Header.Get("Authorization"))
+		assert.Equal(t, deepSeekToolsQuota, outcome.quota, "the successful fallback is charged once")
+
+		// The highest priority now answers the first attempt.
+		official.Priority = common.GetPointer(int64(40))
+		harness.installChannels(t, exa, tavily, official)
+		harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, deepSeekWebToolsSearchReply)
+		}
+		harness.upstream.reset()
+		outcome = harness.post(t, deepSeekToolsSearchPath, `{"query":"deepseek"}`)
+		require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+		requests = harness.upstream.captured()
+		require.Len(t, requests, 1)
+		assert.Equal(t, "Bearer sk-deepseek", requests[0].Header.Get("Authorization"))
+		assert.Equal(t, deepSeekToolsQuota, outcome.quota)
+
+		// A disabled channel is never selected, even with the highest
+		// priority.
+		official.Status = common.ChannelStatusManuallyDisabled
+		harness.installChannels(t, exa, tavily, official)
+		harness.upstream.reset()
+		outcome = harness.post(t, deepSeekToolsSearchPath, `{"query":"deepseek"}`)
+		require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+		requests = harness.upstream.captured()
+		require.Len(t, requests, 1)
+		assert.Equal(t, "sk-exa", requests[0].Header.Get("x-api-key"))
+	})
+
+	// A multi-key channel draws on its enabled keys, in polling or random
+	// mode, and never sends a disabled key.
+	t.Run("MultiKey", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			pluginKey, directory, header string
+		}{
+			"exa":    {pluginKey: "exa-web-tools", directory: "exa", header: "x-api-key"},
+			"tavily": {pluginKey: "tavily-web-tools", directory: "tavily"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				harness := newRelayHarness(t)
+				registerRelayPlugin(t, readProviderPlugin(t, tc.directory))
+				channel := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+				channel.SetSetting(dto.ChannelSettings{TaskPluginKey: tc.pluginKey})
+				channel.Key = "sk-one\nsk-disabled\nsk-two"
+				channel.ChannelInfo = model.ChannelInfo{
+					IsMultiKey:         true,
+					MultiKeySize:       3,
+					MultiKeyStatusList: map[int]int{1: common.ChannelStatusAutoDisabled},
+					MultiKeyMode:       constant.MultiKeyModePolling,
+				}
+				harness.install(t, channel)
+				harness.upstream.respond = func(w http.ResponseWriter, _ int, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, deepSeekWebToolsSearchReply)
+				}
+				sentKey := func(t *testing.T) string {
+					t.Helper()
+					harness.upstream.reset()
+					outcome := harness.post(t, deepSeekToolsSearchPath, `{"query":"deepseek"}`)
+					require.Equal(t, http.StatusOK, outcome.status, outcome.body)
+					requests := harness.upstream.captured()
+					require.Len(t, requests, 1)
+					if tc.header != "" {
+						return requests[0].Header.Get(tc.header)
+					}
+					return strings.TrimPrefix(requests[0].Header.Get("Authorization"), "Bearer ")
+				}
+
+				first, second := sentKey(t), sentKey(t)
+				assert.NotEqual(t, first, second, "an enabled key rotates")
+				assert.Contains(t, []string{"sk-one", "sk-two"}, first)
+				assert.Contains(t, []string{"sk-one", "sk-two"}, second)
+
+				channel.ChannelInfo.MultiKeyMode = constant.MultiKeyModeRandom
+				harness.install(t, channel)
+				for range 4 {
+					assert.Contains(t, []string{"sk-one", "sk-two"}, sentKey(t), "a disabled key is never chosen")
+				}
+			})
+		}
+	})
+
+	// One client request is charged at most once, at the routing name's
+	// per-call price; nothing is charged when the request never succeeds or
+	// the tool returns nothing. No field scales the price.
+	t.Run("Settlement", func(t *testing.T) {
+		previousRetry, previousSameChannel := common.RetryTimes, common.SameChannelRetryTimes
+		t.Cleanup(func() { common.RetryTimes, common.SameChannelRetryTimes = previousRetry, previousSameChannel })
+		common.RetryTimes, common.SameChannelRetryTimes = 2, 0
+
+		harness := newRelayHarness(t)
+		registerRelayPlugin(t, readProviderPlugin(t, "exa"))
+		exa := harness.deepSeekToolsChannel(constant.ChannelTypeTaskPlugin)
+		exa.SetSetting(dto.ChannelSettings{TaskPluginKey: "exa-web-tools"})
+		exa.Key, exa.Priority = "sk-exa", common.GetPointer(int64(20))
+		official := harness.deepSeekToolsChannel(constant.ChannelTypeDeepSeek)
+		official.Key, official.Priority = "sk-deepseek", common.GetPointer(int64(10))
+		harness.installChannels(t, exa, official)
+
+		search := func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, deepSeekWebToolsSearchReply)
+		}
+		for name, tc := range map[string]struct {
+			path, body string
+			respond    func(w http.ResponseWriter, request capturedRequest)
+			status     int
+			quota      int
+			requests   int
+		}{
+			"search is one request price": {
+				path: deepSeekToolsSearchPath, body: `{"query":"deepseek"}`,
+				respond: func(w http.ResponseWriter, _ capturedRequest) { search(w) },
+				status:  http.StatusOK, quota: deepSeekToolsQuota, requests: 1,
+			},
+			"fetch is one request price": {
+				path: deepSeekToolsFetchPath, body: `{"url":"https://example.com/page"}`,
+				respond: func(w http.ResponseWriter, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"results":[{"url":"https://example.com/page","title":"Example Domain","text":"# Example Domain"}]}`)
+				},
+				status: http.StatusOK, quota: deepSeekToolsQuota, requests: 1,
+			},
+			"count does not scale the price": {
+				path: deepSeekToolsSearchPath, body: `{"query":"deepseek","count":50}`,
+				respond: func(w http.ResponseWriter, _ capturedRequest) { search(w) },
+				status:  http.StatusOK, quota: deepSeekToolsQuota, requests: 1,
+			},
+			"empty search does not fall back": {
+				path: deepSeekToolsSearchPath, body: `{"query":"deepseek"}`,
+				respond: func(w http.ResponseWriter, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"results":[]}`)
+				},
+				status: http.StatusOK, quota: 0, requests: 1,
+			},
+			"unparseable search results use the fallback": {
+				path: deepSeekToolsSearchPath, body: `{"query":"deepseek"}`,
+				respond: func(w http.ResponseWriter, request capturedRequest) {
+					if request.Header.Get("x-api-key") == "sk-exa" {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = io.WriteString(w, `{"results":[{"title":"Missing URL"}]}`)
+						return
+					}
+					search(w)
+				},
+				status: http.StatusOK, quota: deepSeekToolsQuota, requests: 2,
+			},
+			"terminal fetch is free": {
+				path: deepSeekToolsFetchPath, body: `{"url":"https://example.com/page"}`,
+				respond: func(w http.ResponseWriter, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = io.WriteString(w, `{"error":"page not found"}`)
+				},
+				status: http.StatusNotFound, quota: 0, requests: 1,
+			},
+			"invalid input is free": {
+				path: deepSeekToolsSearchPath, body: `{"query":""}`,
+				status: http.StatusBadRequest, quota: 0, requests: 0,
+			},
+			"retry exhaustion is free": {
+				path: deepSeekToolsSearchPath, body: `{"query":"deepseek"}`,
+				respond: func(w http.ResponseWriter, _ capturedRequest) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusInternalServerError)
+					_, _ = io.WriteString(w, `{"error":"upstream failed"}`)
+				},
+				status: http.StatusInternalServerError, quota: 0, requests: 2,
+			},
+			"fallback then success is charged once": {
+				path: deepSeekToolsSearchPath, body: `{"query":"deepseek"}`,
+				respond: func(w http.ResponseWriter, request capturedRequest) {
+					if request.Header.Get("x-api-key") == "sk-exa" {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusTooManyRequests)
+						_, _ = io.WriteString(w, `{"error":"rate limit exceeded"}`)
+						return
+					}
+					search(w)
+				},
+				status: http.StatusOK, quota: deepSeekToolsQuota, requests: 2,
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				if tc.respond != nil {
+					harness.upstream.respond = func(w http.ResponseWriter, _ int, request capturedRequest) {
+						tc.respond(w, request)
+					}
+				}
+				harness.upstream.reset()
+				outcome := harness.post(t, tc.path, tc.body)
+				assert.Equal(t, tc.status, outcome.status, outcome.body)
+				assert.Equal(t, tc.quota, outcome.quota)
+				assert.Len(t, harness.upstream.captured(), tc.requests)
+				if tc.status >= http.StatusBadRequest {
+					requireDeepSeekToolsError(t, outcome)
+				}
+			})
+		}
+	})
 }

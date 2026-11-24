@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relay/requestplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -53,10 +52,9 @@ func DeepSeekToolsHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIErr
 		)
 	}
 
-	err := helper.ModelMappedHelper(c, info, request)
-	if err != nil {
-		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
-	}
+	// The routing name is also the billing name and no vendor model name, so a
+	// channel model mapping must not rewrite the body or reach the vendor.
+	info.UpstreamModelName = info.OriginModelName
 
 	jsonData, err := buildAlphaSearchRequestBody(request.RawBody, info.OriginModelName, info.UpstreamModelName)
 	if err != nil {
@@ -104,6 +102,13 @@ func DeepSeekToolsHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIErr
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
+		// A target the Fetch API refuses or cannot read is a terminal answer
+		// about that page, not a channel failure: another channel would send
+		// the same request to the same page.
+		if info.RelayMode == relayconstant.RelayModeToolsFetch &&
+			(httpResp.StatusCode == http.StatusForbidden || httpResp.StatusCode == http.StatusNotFound) {
+			types.MarkSkipRetry(newAPIError)
+		}
 		return newAPIError
 	}
 

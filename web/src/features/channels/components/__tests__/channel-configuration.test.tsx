@@ -61,7 +61,9 @@ import { ChannelMutateDrawer } from '../drawers/channel-mutate-drawer'
 const originalAuth = useAuthStore.getState().auth
 let client: QueryClient
 let editingChannel: Channel
-let pluginOptions: TaskPluginOption[]
+let pluginOptions: (Omit<TaskPluginOption, 'models'> & {
+  models?: string[] | null
+})[]
 let requestPluginInstances: RequestPluginInstance[]
 const plugins: TaskPluginOption[] = [
   {
@@ -435,6 +437,34 @@ test('model mapping help supports keyboard activation and wraps long model names
   )
   expect(trigger).toHaveAttribute('aria-expanded', 'false')
 })
+
+test.each([null, undefined])(
+  'the create-channel drawer can open and select a provider whose model list is %s',
+  async (models) => {
+    pluginOptions = [
+      {
+        key: 'web-tools',
+        name: 'Web tools',
+        baseUrl: 'https://search.example',
+        models,
+        task: false,
+        provider: true,
+      },
+    ]
+    const user = userEvent.setup()
+    render(<ConfigurationHarness initialOpen={false} />)
+
+    await user.click(screen.getByRole('button', { name: 'Open channel' }))
+    const provider = await screen.findByRole('option', { name: /Web tools/ })
+    expect(provider).toBeVisible()
+    await user.click(provider)
+
+    expect(screen.getByRole('textbox', { name: /^Name\s*\*$/ })).toHaveValue(
+      'Web tools'
+    )
+    expect(screen.getByDisplayValue('https://search.example')).toBeVisible()
+  }
+)
 
 test('selecting a plugin opens a prefilled channel and creates its explicit binding', async () => {
   const post = vi

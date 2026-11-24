@@ -124,6 +124,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					"type":  "error",
 					"error": newAPIError.ToClaudeError(upstreamURLs...),
 				})
+			case types.RelayFormatDeepSeekTools:
+				// DeepSeek names no parameter, so its errors carry a null param
+				// where the OpenAI shape carries an empty string.
+				relayError := newAPIError.ToOpenAIError(upstreamURLs...)
+				c.JSON(newAPIError.StatusCode, gin.H{
+					"error": gin.H{
+						"message": relayError.Message,
+						"type":    relayError.Type,
+						"param":   nil,
+						"code":    relayError.Code,
+					},
+				})
 			default:
 				c.JSON(newAPIError.StatusCode, gin.H{
 					"error": newAPIError.ToOpenAIError(upstreamURLs...),

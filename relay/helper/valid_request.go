@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -172,13 +173,11 @@ func GetAndValidateAlphaSearchRequest(c *gin.Context) (*dto.AlphaSearchRequest, 
 	return request, nil
 }
 
-// GetAndValidateDeepSeekToolsRequest keeps the raw body for forwarding. The
-// upstream validates query/url itself, and no field changes the per-call price.
+// GetAndValidateDeepSeekToolsRequest keeps the raw body for forwarding and
+// checks the fields DeepSeek's Search and Fetch APIs define, so an invalid
+// request fails before a channel is reserved. Unknown fields pass through and
+// a valid body reaches the upstream byte for byte.
 func GetAndValidateDeepSeekToolsRequest(c *gin.Context) (*dto.DeepSeekToolsRequest, error) {
-	request := &dto.DeepSeekToolsRequest{}
-	if err := common.UnmarshalBodyReusableNoCopy(c, request); err != nil {
-		return nil, err
-	}
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, err
@@ -190,8 +189,132 @@ func GetAndValidateDeepSeekToolsRequest(c *gin.Context) (*dto.DeepSeekToolsReque
 	if len(rawBody) == 0 {
 		return nil, errors.New("request body is empty")
 	}
-	request.RawBody = rawBody
-	return request, nil
+	if err = validateDeepSeekToolsBody(c.Request.URL.Path, rawBody); err != nil {
+		return nil, err
+	}
+	return &dto.DeepSeekToolsRequest{RawBody: rawBody}, nil
+}
+
+// DeepSeek Search and Fetch field bounds. A value outside them is rejected
+// rather than clipped, because the upstream prices every call the same and
+// must see what the client asked for.
+const (
+	deepSeekToolsMaxQueryRunes = 128
+	deepSeekToolsMaxCount      = 50
+	deepSeekToolsMaxURLRunes   = 8192
+)
+
+func validateDeepSeekToolsBody(path string, raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &fields); err != nil {
+		return errors.New("request body must be a JSON object")
+	}
+	switch path {
+	case "/v1/tools/search":
+		return validateDeepSeekSearchBody(fields)
+	case "/v1/tools/fetch":
+		return validateDeepSeekFetchBody(fields)
+	default:
+		return fmt.Errorf("unsupported tools path %s", path)
+	}
+}
+
+func validateDeepSeekSearchBody(fields map[string]json.RawMessage) error {
+	query, err := deepSeekToolsStringField(fields, "query")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(query) == "" {
+		return errors.New("query is required")
+	}
+	if utf8.RuneCountInString(query) > deepSeekToolsMaxQueryRunes {
+		return fmt.Errorf("query must be %d characters or fewer", deepSeekToolsMaxQueryRunes)
+	}
+
+	if _, exists := fields["count"]; exists {
+		count, err := deepSeekToolsIntField(fields, "count")
+		if err != nil {
+			return err
+		}
+		if count < 1 || count > deepSeekToolsMaxCount {
+			return fmt.Errorf("count must be an integer between 1 and %d", deepSeekToolsMaxCount)
+		}
+	}
+
+	// ori_question is the one field where an explicit null means the same as
+	// an omitted one.
+	if question, exists := fields["ori_question"]; exists && string(question) != "null" {
+		var text string
+		if err = common.Unmarshal(question, &text); err != nil {
+			return errors.New("ori_question must be a string or null")
+		}
+		if length := utf8.RuneCountInString(text); length < 1 || length > deepSeekToolsMaxQueryRunes {
+			return fmt.Errorf("ori_question must be between 1 and %d characters", deepSeekToolsMaxQueryRunes)
+		}
+	}
+
+	if _, err = deepSeekToolsStringField(fields, "localization"); err != nil {
+		return err
+	}
+	_, err = deepSeekToolsBoolField(fields, "need_content")
+	return err
+}
+
+func validateDeepSeekFetchBody(fields map[string]json.RawMessage) error {
+	target, err := deepSeekToolsStringField(fields, "url")
+	if err != nil {
+		return err
+	}
+	if target == "" {
+		return errors.New("url is required")
+	}
+	if utf8.RuneCountInString(target) > deepSeekToolsMaxURLRunes {
+		return fmt.Errorf("url must be %d characters or fewer", deepSeekToolsMaxURLRunes)
+	}
+	parsed, err := url.Parse(target)
+	if err != nil || !parsed.IsAbs() || parsed.User != nil || parsed.Hostname() == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return errors.New("url must be an absolute http or https URL")
+	}
+	return nil
+}
+
+// deepSeekToolsStringField reads a string member. An explicit null is a type
+// error, because only ori_question treats null as omitted.
+func deepSeekToolsStringField(fields map[string]json.RawMessage, name string) (string, error) {
+	raw, exists := fields[name]
+	if !exists {
+		return "", nil
+	}
+	var value string
+	if string(raw) == "null" || common.Unmarshal(raw, &value) != nil {
+		return "", fmt.Errorf("%s must be a string", name)
+	}
+	return value, nil
+}
+
+func deepSeekToolsIntField(fields map[string]json.RawMessage, name string) (int, error) {
+	raw, exists := fields[name]
+	if !exists {
+		return 0, nil
+	}
+	var value int
+	if string(raw) == "null" || common.Unmarshal(raw, &value) != nil {
+		return 0, fmt.Errorf("%s must be an integer", name)
+	}
+	return value, nil
+}
+
+func deepSeekToolsBoolField(fields map[string]json.RawMessage, name string) (bool, error) {
+	raw, exists := fields[name]
+	if !exists {
+		return false, nil
+	}
+	var value bool
+	if string(raw) == "null" || common.Unmarshal(raw, &value) != nil {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return value, nil
 }
 
 func GetAndValidateResponsesCompactionRequest(c *gin.Context) (*dto.OpenAIResponsesCompactionRequest, error) {

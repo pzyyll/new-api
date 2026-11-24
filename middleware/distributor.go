@@ -428,6 +428,21 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	var modelRequest ModelRequest
 	shouldSelectChannel := true
 	var err error
+	// DeepSeek's Search and Fetch bodies name no model, so the exact path
+	// picks the routing name. Reading the body here keeps the size limit and
+	// its 413, and keeps a body model or group from steering the channel.
+	switch c.Request.URL.Path {
+	case "/v1/tools/search":
+		modelRequest.Model = constant.DeepSeekSearchModel
+	case "/v1/tools/fetch":
+		modelRequest.Model = constant.DeepSeekFetchModel
+	}
+	if modelRequest.Model != "" {
+		if _, bodyErr := common.GetBodyStorage(c); bodyErr != nil {
+			return nil, false, bodyErr
+		}
+		return &modelRequest, shouldSelectChannel, nil
+	}
 	if modelName := c.GetString("resolved_task_model"); modelName != "" {
 		modelRequest.Model = modelName
 	} else if strings.Contains(c.Request.URL.Path, "/mj/") {
@@ -529,13 +544,6 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		if modelRequest.Model == "" {
 			modelRequest.Model = c.Param("model")
 		}
-	}
-	// The routing name is also the billing name, so a model named in the body
-	// must not replace it: DeepSeek ignores that field.
-	if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/search") {
-		modelRequest.Model = constant.DeepSeekSearchModel
-	} else if strings.HasPrefix(c.Request.URL.Path, "/v1/tools/fetch") {
-		modelRequest.Model = constant.DeepSeekFetchModel
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/images/generations") {
 		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "dall-e")
