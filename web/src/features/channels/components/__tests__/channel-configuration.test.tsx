@@ -1639,6 +1639,45 @@ test('restoring routing defaults clears the configured indicator for both the bl
   expect(within(block).getByRole('img', { name: 'Configured' })).toBeVisible()
 })
 
+test('a saved User-Agent filter marks routing as configured and clearing it removes the indicator', async () => {
+  editingChannel = { ...editingChannel, user_agent: 'codex*' }
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const tab = screen.getByRole('tab', { name: /Routing & Mapping/ })
+  expect(tab).toHaveAccessibleName(/Configured/)
+  await user.click(tab)
+  const input = screen.getByLabelText('User-Agent Filter')
+  expect(input).toHaveValue('codex*')
+  fireEvent.change(input, { target: { value: '' } })
+  expect(tab).not.toHaveAccessibleName(/Configured/)
+  expect(
+    within(screen.getByRole('group', { name: 'Routing Strategy' })).queryByRole(
+      'img',
+      { name: 'Configured' }
+    )
+  ).not.toBeInTheDocument()
+})
+
+test('editing the User-Agent filter saves the patterns with the channel', async () => {
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+  fireEvent.change(screen.getByLabelText('User-Agent Filter'), {
+    target: { value: 'codex*,claude-code*' },
+  })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  expect(put.mock.calls[0]?.[1]).toMatchObject({
+    id: 42,
+    user_agent: 'codex*,claude-code*',
+  })
+})
+
 test('channel request processing plugins save in their order and a deleted instance stays removable', async () => {
   const instance = (id: string, name: string): RequestPluginInstance => ({
     id,

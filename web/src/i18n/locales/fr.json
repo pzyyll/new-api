@@ -1385,6 +1385,7 @@
     "Codex channels use an OAuth JSON credential as the key.": "Les canaux Codex utilisent un identifiant OAuth JSON comme clé.",
     "Codex CLI Header Passthrough": "Passthrough en-tête Codex CLI",
     "Codex credential must be a JSON object with access_token and account_id": "L'identifiant Codex doit être un objet JSON avec access_token et account_id",
+    "codex*,claude-code*": "codex*,claude-code*",
     "Cohere": "Cohere",
     "Collapse": "Réduire",
     "Collapse all": "Tout replier",

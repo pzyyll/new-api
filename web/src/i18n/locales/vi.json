@@ -1385,6 +1385,7 @@
     "Codex channels use an OAuth JSON credential as the key.": "Kênh Codex dùng thông tin xác thực OAuth JSON làm khóa.",
     "Codex CLI Header Passthrough": "Chuyển tiếp header Codex CLI",
     "Codex credential must be a JSON object with access_token and account_id": "Thông tin xác thực Codex phải là đối tượng JSON có access_token và account_id",
+    "codex*,claude-code*": "codex*,claude-code*",
     "Cohere": "Cohere",
     "Collapse": "Thu gọn",
     "Collapse all": "Thu gọn tất cả",

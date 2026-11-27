@@ -2402,6 +2402,28 @@ export function ChannelMutateDrawer({
 
       <FormField
         control={form.control}
+        name='user_agent'
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>{t('User-Agent Filter')}</FormLabel>
+            <FormControl>
+              <Input
+                placeholder={t(FIELD_PLACEHOLDERS.USER_AGENT)}
+                {...field}
+              />
+            </FormControl>
+            <FormDescription>
+              {t(
+                'Comma-separated wildcard patterns. When set, only matching client User-Agents can use this channel.'
+              )}
+            </FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
         name='test_model'
         render={({ field }) => (
           <FormItem>
